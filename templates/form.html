@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ru">
+    <head>
+        <meta charset="UTF-8">
+        <title>Ввод данных</title>
+        <link rel="manifest" href="/manifest.json">
+        <script>
+         if ('serviceWorker' in navigator) {
+             navigator.serviceWorker.register('/service-worker.js').then(function(registration) {
+                 console.log('Регистрация Service Worker прошла успешно с областью: ', registration.scope);
+             }, function(err) {
+                 console.log('Регистрация Service Worker не удалась: ', err);
+             });
+         }
+        </script>
+    </head>
+    <body>
+        <h1>Ввод данных</h1>
+        <form action="/submit" method="post">
+            <input type="text" name="batch_number" placeholder="Номер партии" required>
+            <input type="text" name="part_number" placeholder="Номер детали" required>
+            <input type="number" name="quantity" placeholder="Количество" required>
+            <button type="submit">Отправить</button>
+        </form>
+    </body>
+</html>

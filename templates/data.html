@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="ru">
+    <head>
+        <meta charset="UTF-8">
+        <title>Ввод данных</title>
+        <link rel="manifest" href="/manifest.json">
+        <script>
+         if ('serviceWorker' in navigator) {
+             navigator.serviceWorker.register('/service-worker.js').then(function(registration) {
+                 console.log('Регистрация Service Worker прошла успешно с областью: ', registration.scope);
+             }, function(err) {
+                 console.log('Регистрация Service Worker не удалась: ', err);
+             });
+         }
+        </script>
+    </head>
+<body>
+    <h1>Последние данные</h1>
+    <table>
+        <tr>
+            <th>Номер партии</th>
+            <th>Номер детали</th>
+            <th>Количество</th>
+        </tr>
+        {% for item in data %}
+        <tr>
+            <td>{{ item['batch_number'] }}</td>
+            <td>{{ item['part_number'] }}</td>
+            <td>{{ item['quantity'] }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>
