@@ -10,7 +10,7 @@ __pycache__/
 .Python
 build/
 develop-eggs/
-static/qr_codes
+static/qr_codes/
 dist/
 downloads/
 eggs/
