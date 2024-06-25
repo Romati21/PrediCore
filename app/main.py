@@ -6,6 +6,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 from fastapi import Request, Form
 import qrcode
+# uvicorn app.main:app --reload
 
 models.Base.metadata.create_all(bind=engine)
 
