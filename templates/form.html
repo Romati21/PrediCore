@@ -1,26 +1,33 @@
 <!DOCTYPE html>
 <html lang="ru">
-    <head>
-        <meta charset="UTF-8">
-        <title>Ввод данных</title>
-        <link rel="manifest" href="/manifest.json">
-        <script>
-         if ('serviceWorker' in navigator) {
-             navigator.serviceWorker.register('/service-worker.js').then(function(registration) {
-                 console.log('Регистрация Service Worker прошла успешно с областью: ', registration.scope);
-             }, function(err) {
-                 console.log('Регистрация Service Worker не удалась: ', err);
-             });
-         }
-        </script>
-    </head>
-    <body>
-        <h1>Ввод данных</h1>
-        <form action="/submit" method="post">
-            <input type="text" name="batch_number" placeholder="Номер партии" required>
-            <input type="text" name="part_number" placeholder="Номер детали" required>
-            <input type="number" name="quantity" placeholder="Количество" required>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Журнал ЧПУ</title>
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="/static/app.js" defer></script>
+</head>
+<body>
+    <header>
+        <h1>Журнал ЧПУ</h1>
+    </header>
+    <main>
+        <div id="reader"></div>
+        <form id="dataForm" action="/submit" method="post">
+            <input type="text" id="batch_number" name="batch_number" placeholder="Номер партии" required>
+            <input type="text" id="part_number" name="part_number" placeholder="Номер детали" required>
+            <input type="number" id="quantity" name="quantity" placeholder="Количество" required>
             <button type="submit">Отправить</button>
         </form>
-    </body>
+    </main>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/static/service-worker.js')
+              .then((reg) => console.log('Service worker registered.', reg))
+              .catch((err) => console.log('Service worker registration failed:', err));
+        }
+    </script>
+</body>
 </html>

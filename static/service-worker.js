@@ -1,22 +1,21 @@
+const CACHE_NAME = 'qr-inventory-v1';
+const urlsToCache = [
+    '/',
+    '/static/styles.css',
+    '/static/app.js',
+    'https://unpkg.com/html5-qrcode'
+];
 
 self.addEventListener('install', (event) => {
-    console.log('Service Worker installing.');
     event.waitUntil(
-        caches.open('qr-inventory-cache').then((cache) => {
-            return cache.addAll([
-                '/',
-                '/static/icons/icon-192x192.png',
-                '/static/icons/icon-512x512.png',
-                '/manifest.json'
-            ]);
-        })
+        caches.open(CACHE_NAME)
+            .then((cache) => cache.addAll(urlsToCache))
     );
 });
 
 self.addEventListener('fetch', (event) => {
     event.respondWith(
-        caches.match(event.request).then((response) => {
-            return response || fetch(event.request);
-        })
+        caches.match(event.request)
+            .then((response) => response || fetch(event.request))
     );
 });
