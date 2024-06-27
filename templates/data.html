@@ -1,34 +1,40 @@
 <!DOCTYPE html>
 <html lang="ru">
-    <head>
-        <meta charset="UTF-8">
-        <title>Ввод данных</title>
-        <link rel="manifest" href="/manifest.json">
-        <script>
-         if ('serviceWorker' in navigator) {
-             navigator.serviceWorker.register('/service-worker.js').then(function(registration) {
-                 console.log('Регистрация Service Worker прошла успешно с областью: ', registration.scope);
-             }, function(err) {
-                 console.log('Регистрация Service Worker не удалась: ', err);
-             });
-         }
-        </script>
-    </head>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Журнал ЧПУ - Data</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
 <body>
-    <h1>Последние данные</h1>
-    <table>
-        <tr>
-            <th>Номер партии</th>
-            <th>Номер детали</th>
-            <th>Количество</th>
-        </tr>
-        {% for item in data %}
-        <tr>
-            <td>{{ item['batch_number'] }}</td>
-            <td>{{ item['part_number'] }}</td>
-            <td>{{ item['quantity'] }}</td>
-        </tr>
-        {% endfor %}
-    </table>
+    <header>
+        <h1>Журнал ЧПУ - Data</h1>
+        <nav>
+            <a href="/">Вернуться на главную</a>
+            <a href="/data" class="active">SQL</a>
+        </nav>
+    </header>
+    <main>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Номер партии</th>
+                    <th>Номер детали</th>
+                    <th>Количество</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in data %}
+                <tr>
+                    <td>{{ item.id }}</td>
+                    <td>{{ item.batch_number }}</td>
+                    <td>{{ item.part_number }}</td>
+                    <td>{{ item.quantity }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </main>
 </body>
 </html>

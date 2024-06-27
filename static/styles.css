@@ -14,6 +14,22 @@ header {
     padding: 1rem;
 }
 
+nav {
+    margin-top: 1rem;
+}
+
+nav a {
+    color: white;
+    text-decoration: none;
+    padding: 0.5rem 1rem;
+    margin: 0 0.5rem;
+    border-radius: 4px;
+}
+
+nav a.active {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
 main {
     flex-grow: 1;
     padding: 1rem;
@@ -35,8 +51,17 @@ form {
     max-width: 300px;
 }
 
-input, button {
+.form-group {
+    display: flex;
+    flex-direction: column;
     margin-bottom: 1rem;
+}
+
+label {
+    margin-bottom: 0.5rem;
+}
+
+input, button {
     padding: 0.5rem;
     font-size: 1rem;
 }
@@ -46,14 +71,35 @@ button {
     color: white;
     border: none;
     cursor: pointer;
+    margin-top: 1rem;
 }
 
 button:hover {
     background-color: #3367d6;
 }
 
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+}
+
+th, td {
+    border: 1px solid #ddd;
+    padding: 0.5rem;
+    text-align: left;
+}
+
+th {
+    background-color: #f2f2f2;
+}
+
 @media (max-width: 600px) {
     #reader {
         max-width: 100%;
+    }
+
+    table {
+        font-size: 0.9rem;
     }
 }

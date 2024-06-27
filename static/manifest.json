@@ -1,6 +1,6 @@
 {
-    "name": "Журнал ЧПУ",
-    "short_name": "Журнал ЧПУ",
+    "name": "Изолятор",
+    "short_name": "Изолятор",
     "start_url": "/",
     "display": "standalone",
     "background_color": "#ffffff",

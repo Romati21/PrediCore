@@ -12,13 +12,26 @@
 <body>
     <header>
         <h1>Журнал ЧПУ</h1>
+        <nav>
+            <a href="/" class="active">Главная</a>
+            <a href="/data">SQL</a>
+        </nav>
     </header>
     <main>
         <div id="reader"></div>
         <form id="dataForm" action="/submit" method="post">
-            <input type="text" id="batch_number" name="batch_number" placeholder="Номер партии" required>
-            <input type="text" id="part_number" name="part_number" placeholder="Номер детали" required>
-            <input type="number" id="quantity" name="quantity" placeholder="Количество" required>
+            <div class="form-group">
+                <label for="batch_number">Номер партии:</label>
+                <input type="text" id="batch_number" name="batch_number" required>
+            </div>
+            <div class="form-group">
+                <label for="part_number">Номер детали:</label>
+                <input type="text" id="part_number" name="part_number" required>
+            </div>
+            <div class="form-group">
+                <label for="quantity">Количество:</label>
+                <input type="number" id="quantity" name="quantity" required>
+            </div>
             <button type="submit">Отправить</button>
         </form>
     </main>
