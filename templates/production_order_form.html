@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Заказ-наряд на производство оконцевателей</title>
+</head>
+<body>
+    <h1>Заказ-наряд на производство оконцевателей</h1>
+    <form action="/submit_production_order" method="post">
+        <label for="drawing_designation">Обозначение чертежа:</label>
+        <input type="text" id="drawing_designation" name="drawing_designation" required><br><br>
+
+        <label for="drawing_link">Ссылка на чертеж:</label>
+        <input type="url" id="drawing_link" name="drawing_link" required><br><br>
+
+        <label for="quantity">Количество:</label>
+        <input type="number" id="quantity" name="quantity" required><br><br>
+
+        <label for="desired_production_date">Желательная дата изготовления:</label>
+        <input type="text" id="desired_production_date" name="desired_production_date" placeholder="20.07.2024 - 30.07.2024" required><br><br>
+
+        <label for="required_material">Необходимый материал:</label>
+        <input type="text" id="required_material" name="required_material" required><br><br>
+
+        <label for="metal_delivery_date">Срок поставки металла:</label>
+        <input type="text" id="metal_delivery_date" name="metal_delivery_date" placeholder="20.07.2024" required><br><br>
+
+        <label for="notes">Примечания:</label><br>
+        <textarea id="notes" name="notes" rows="4" cols="50"></textarea><br><br>
+
+        <input type="submit" value="Отправить">
+    </form>
+</body>
+</html>

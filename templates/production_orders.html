@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Список заказ-нарядов на производство</title>
+</head>
+<body>
+    <h1>Список заказ-нарядов на производство</h1>
+    <table border="1">
+        <tr>
+            <th>Номер заказа</th>
+            <th>Дата публикации</th>
+            <th>Обозначение чертежа</th>
+            <th>Количество</th>
+            <th>Желательная дата изготовления</th>
+            <th>Необходимый материал</th>
+            <th>Срок поставки металла</th>
+        </tr>
+        {% for order in orders %}
+        <tr>
+            <td>{{ order.order_number }}</td>
+            <td>{{ order.publication_date.strftime('%d.%m.%Y') }}</td>
+            <td>{{ order.drawing_designation }}</td>
+            <td>{{ order.quantity }}</td>
+            <td>{{ order.desired_production_date }}</td>
+            <td>{{ order.required_material }}</td>
+            <td>{{ order.metal_delivery_date }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    <br>
+    <a href="/production_order_form">Создать новый заказ-наряд</a>
+</body>
+</html>
