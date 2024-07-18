@@ -3,9 +3,9 @@ from sqlalchemy.orm import Session
 from app import models, repository
 from app.database import SessionLocal, engine
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from datetime import date
+from datetime import date, datetime
 from pydantic import BaseModel
 import qrcode
 import io
@@ -31,8 +31,8 @@ def get_db():
         db.close()
 
 @app.get("/", response_class=HTMLResponse)
-async def read_form(request: Request):
-    return templates.TemplateResponse("form.html", {"request": request})
+async def read_root(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/submit")
 async def submit_data(batch_number: str = Form(...), part_number: str = Form(...), quantity: int = Form(...), db: Session = Depends(get_db)):
@@ -77,17 +77,34 @@ async def submit_production_order(
     drawing_designation: str = Form(...),
     drawing_link: str = Form(...),
     quantity: int = Form(...),
-    desired_production_date: str = Form(...),
+    desired_production_date_start: str = Form(...),
+    desired_production_date_end: str = Form(...),
     required_material: str = Form(...),
     metal_delivery_date: str = Form(...),
     notes: str = Form(...),
     db: Session = Depends(get_db)
 ):
+    date_format = "%d.%m.%Y"
+    try:
+        desired_production_date_start_parsed = datetime.strptime(desired_production_date_start, date_format).date()
+        desired_production_date_end_parsed = datetime.strptime(desired_production_date_end, date_format).date()
+        metal_delivery_date_parsed = datetime.strptime(metal_delivery_date, date_format).date()
+    except ValueError:
+        # Если не удалось распарсить дату, оставляем как есть
+        metal_delivery_date_parsed = metal_delivery_date
+
     production_order = repository.create_production_order(
-        db, drawing_designation, drawing_link, quantity,
-        desired_production_date, required_material, metal_delivery_date, notes
+        db=db,
+        drawing_designation=drawing_designation,
+        drawing_link=drawing_link,
+        quantity=quantity,
+        desired_production_date_start=desired_production_date_start_parsed,
+        desired_production_date_end=desired_production_date_end_parsed,
+        required_material=required_material,
+        metal_delivery_date=metal_delivery_date_parsed,
+        notes=notes
     )
-    return {"success": "Заказ-наряд создан", "order_number": production_order.order_number}
+    return RedirectResponse(url="/production_order_form", status_code=303)
 
 @app.get("/production_orders", response_class=HTMLResponse)
 async def show_production_orders(request: Request, db: Session = Depends(get_db)):

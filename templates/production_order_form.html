@@ -1,35 +1,100 @@
 <!DOCTYPE html>
 <html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Заказ-наряд на производство оконцевателей</title>
-</head>
-<body>
-    <h1>Заказ-наряд на производство оконцевателей</h1>
-    <form action="/submit_production_order" method="post">
-        <label for="drawing_designation">Обозначение чертежа:</label>
-        <input type="text" id="drawing_designation" name="drawing_designation" required><br><br>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Заказ-наряд на производство оконцевателей</title>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+        <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+        <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/ru.js"></script>
+        <style>
+         .button {
+             display: inline-block;
+             padding: 10px 20px;
+             background-color: #4CAF50;
+             color: white;
+             text-decoration: none;
+             border-radius: 5px;
+             transition: background-color 0.3s;
+         }
+         .button:hover {
+             background-color: #45a049;
+         }
+        </style>
+    </head>
+    <body>
+        <h1>Заказ-наряд на производство оконцевателей</h1>
+        <form action="/submit_production_order" method="post" onsubmit="return validateForm()">
 
-        <label for="drawing_link">Ссылка на чертеж:</label>
-        <input type="url" id="drawing_link" name="drawing_link" required><br><br>
+            <!-- <label for="metal_delivery_date">Срок поставки металла:</label>
+                 <input type="text" id="metal_delivery_date" name="metal_delivery_date" required><br><br> -->
+            <label for="drawing_designation">Обозначение чертежа:</label>
+            <input type="text" id="drawing_designation" name="drawing_designation" required><br><br>
 
-        <label for="quantity">Количество:</label>
-        <input type="number" id="quantity" name="quantity" required><br><br>
+            <label for="drawing_link">Ссылка на чертеж:</label>
+            <input type="url" id="drawing_link" name="drawing_link" required><br><br>
 
-        <label for="desired_production_date">Желательная дата изготовления:</label>
-        <input type="text" id="desired_production_date" name="desired_production_date" placeholder="20.07.2024 - 30.07.2024" required><br><br>
+            <label for="quantity">Количество:</label>
+            <input type="number" id="quantity" name="quantity" required min="1"><br><br>
 
-        <label for="required_material">Необходимый материал:</label>
-        <input type="text" id="required_material" name="required_material" required><br><br>
+            <label for="desired_production_date_start">Желательная дата изготовления (начало):</label>
+            <input type="text" id="desired_production_date_start" name="desired_production_date_start" required><br><br>
 
-        <label for="metal_delivery_date">Срок поставки металла:</label>
-        <input type="text" id="metal_delivery_date" name="metal_delivery_date" placeholder="20.07.2024" required><br><br>
+            <label for="desired_production_date_end">Желательная дата изготовления (конец):</label>
+            <input type="text" id="desired_production_date_end" name="desired_production_date_end" required><br><br>
 
-        <label for="notes">Примечания:</label><br>
-        <textarea id="notes" name="notes" rows="4" cols="50"></textarea><br><br>
+            <label for="required_material">Необходимый материал:</label>
+            <input type="text" id="required_material" name="required_material" required><br><br>
 
-        <input type="submit" value="Отправить">
-    </form>
-</body>
+            <label for="metal_delivery_date">Срок поставки металла:</label>
+            <input type="text" id="metal_delivery_date" name="metal_delivery_date" required><br><br>
+
+            <label for="notes">Примечания:</label><br>
+            <textarea id="notes" name="notes" rows="4" cols="50"></textarea><br><br>
+
+            <input type="submit" value="Отправить">
+        </form>
+
+        <br>
+        <a href="/" class="button">Вернуться на главную страницу</a>
+
+        <script>
+         flatpickr.localize(flatpickr.l10ns.ru);
+         flatpickr("#desired_production_date_start", {
+             dateFormat: "d.m.Y",
+             allowInput: true
+         });
+         flatpickr("#desired_production_date_end", {
+             dateFormat: "d.m.Y",
+             allowInput: true
+         });
+         flatpickr("#metal_delivery_date", {
+             dateFormat: "d.m.Y",
+             allowInput: true,
+             altInput: true,
+             altFormat: "d.m.Y",
+             allowInvalidPreload: true
+         });
+
+         function validateForm() {
+             var start = document.getElementById("desired_production_date_start").value;
+             var end = document.getElementById("desired_production_date_end").value;
+
+             // Преобразуем строки в объекты Date
+             var startDate = parseDate(start);
+             var endDate = parseDate(end);
+
+             if (startDate > endDate) {
+                 alert("Дата начала производства не может быть позже даты окончания");
+                 return false;
+             }
+             return true;
+         }
+
+         function parseDate(dateString) {
+             var parts = dateString.split(".");
+             return new Date(parts[2], parts[1] - 1, parts[0]);
+         }
+        </script>
+    </body>
 </html>

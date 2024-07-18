@@ -21,11 +21,11 @@
         <tr>
             <td>{{ order.order_number }}</td>
             <td>{{ order.publication_date.strftime('%d.%m.%Y') }}</td>
-            <td>{{ order.drawing_designation }}</td>
+            <td><a href="{{ order.drawing_link }}" target="_blank">{{ order.drawing_designation }}</a></td>
             <td>{{ order.quantity }}</td>
-            <td>{{ order.desired_production_date }}</td>
+            <td>{{ order.desired_production_date_start.strftime('%d.%m.%Y') }} - {{ order.desired_production_date_end.strftime('%d.%m.%Y') }}</td>
             <td>{{ order.required_material }}</td>
-            <td>{{ order.metal_delivery_date }}</td>
+            <td>{{ order.metal_delivery_date.strftime('%d.%m.%Y') }}</td>
         </tr>
         {% endfor %}
     </table>

@@ -3,6 +3,7 @@ from app import models
 import random
 import string
 from datetime import date
+from typing import Union
 
 def generate_unique_id(db: Session):
     while True:
@@ -39,15 +40,25 @@ def generate_unique_order_number(db: Session):
         if not db.query(models.ProductionOrder).filter(models.ProductionOrder.order_number == order_number).first():
             return order_number
 
-def create_production_order(db: Session, drawing_designation: str, drawing_link: str, quantity: int,
-                            desired_production_date: str, required_material: str, metal_delivery_date: str, notes: str):
+def create_production_order(
+    db: Session,
+    drawing_designation: str,
+    drawing_link: str,
+    quantity: int,
+    desired_production_date_start: date,
+    desired_production_date_end: date,
+    required_material: str,
+    metal_delivery_date: Union[date, str],
+    notes: str
+):
     order_number = generate_unique_order_number(db)
     db_order = models.ProductionOrder(
         order_number=order_number,
         drawing_designation=drawing_designation,
         drawing_link=drawing_link,
         quantity=quantity,
-        desired_production_date=desired_production_date,
+        desired_production_date_start=desired_production_date_start,
+        desired_production_date_end=desired_production_date_end,
         required_material=required_material,
         metal_delivery_date=metal_delivery_date,
         notes=notes
