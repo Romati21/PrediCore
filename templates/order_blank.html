@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ru">
+    <head>
+        <meta charset="UTF-8">
+        <title>Заказ-наряд на производство оконцевателей</title>
+        <style>
+         @page {
+             size: A4;
+             margin: 0;
+         }
+         body {
+             font-family: sans-serif;
+             margin: 0;
+             padding: 2cm;
+             position: relative;
+             min-height: 297mm;
+             box-sizing: border-box;
+         }
+         .container {
+             width: 100%;
+             position: relative;
+         }
+         table {
+             width: 100%;
+             border-collapse: collapse;
+         }
+         th, td {
+             border: 1px solid black;
+             padding: 8px;
+         }
+         #qr-code {
+             position: fixed;
+             bottom: 2cm;
+             right: 2cm;
+             width: 30mm;
+             height: 30mm;
+         }
+         #qr-code img {
+             width: 100%;
+             height: 100%;
+         }
+         .print-button {
+             position: absolute;
+             top: 10px;
+             right: 10px;
+         }
+         @media print {
+             .print-button {
+                 display: none !important;
+             }
+             .no-print {
+                 display: none !important;
+             }
+         }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="print-button no-print">
+                <button onclick="window.print()">Печать</button>
+            </div>
+            <h1>Заказ-наряд на производство оконцевателей № {{ order.order_number }}</h1>
+            <table>
+                <tr>
+                    <th>Дата публикации:</th>
+                    <td>{{ order.publication_date.strftime('%d.%m.%Y') }}</td>
+                </tr>
+                <tr>
+                    <th>Обозначение чертежа:</th>
+                    <td>{{ order.drawing_designation }}</td>
+                </tr>
+                <tr>
+                    <th>Количество:</th>
+                    <td>{{ order.quantity }}</td>
+                </tr>
+                <tr>
+                    <th>Желательная дата изготовления:</th>
+                    <td>{{ order.desired_production_date_start.strftime('%d.%m.%Y') }} - {{ order.desired_production_date_end.strftime('%d.%m.%Y') }}</td>
+                </tr>
+                <tr>
+                    <th>Необходимый материал:</th>
+                    <td>{{ order.required_material }}</td>
+                </tr>
+                <tr>
+                    <th>Срок поставки металла:</th>
+                    <td>
+                        {% if order.metal_delivery_date.__class__.__name__ == 'date' %}
+                        {{ order.metal_delivery_date.strftime('%d.%m.%Y') }}
+                        {% else %}
+                        {{ order.metal_delivery_date }}
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <th>Примечания:</th>
+                    <td>{{ order.notes }}</td>
+                </tr>
+            </table>
+        </div>
+        <div id="qr-code">
+            <img src="{{ qr_code_img }}" alt="QR-код">
+        </div>
+    </body>
+</html>

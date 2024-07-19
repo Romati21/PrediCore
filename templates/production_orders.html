@@ -4,6 +4,21 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Список заказ-нарядов на производство</title>
+    <style>
+     .button {
+         display: inline-block;
+         padding: 10px 20px;
+         background-color: #4CAF50;
+         color: white;
+         text-decoration: none;
+         border-radius: 5px;
+         transition: background-color 0.3s;
+         margin-top: 20px; /* Добавьте отступ сверху */
+     }
+     .button:hover {
+         background-color: #45a049;
+     }
+    </style>
 </head>
 <body>
     <h1>Список заказ-нарядов на производство</h1>
@@ -16,6 +31,7 @@
             <th>Желательная дата изготовления</th>
             <th>Необходимый материал</th>
             <th>Срок поставки металла</th>
+            <th>Примечания</th> <th-- Добавили новый столбец -->
         </tr>
         {% for order in orders %}
         <tr>
@@ -25,11 +41,22 @@
             <td>{{ order.quantity }}</td>
             <td>{{ order.desired_production_date_start.strftime('%d.%m.%Y') }} - {{ order.desired_production_date_end.strftime('%d.%m.%Y') }}</td>
             <td>{{ order.required_material }}</td>
-            <td>{{ order.metal_delivery_date.strftime('%d.%m.%Y') }}</td>
+            <td>
+                {% if order.metal_delivery_date.__class__.__name__ == 'date' %}
+                    {{ order.metal_delivery_date.strftime('%d.%m.%Y') }}
+                {% else %}
+                    {{ order.metal_delivery_date }}
+                {% endif %}
+            </td>
+            <td>{{ order.notes }}</td> <th-- Добавили ячейку для примечаний -->
+            <td><a href="/print_order/{{ order.id }}" target="_blank">Печать</a></td>
         </tr>
         {% endfor %}
     </table>
     <br>
     <a href="/production_order_form">Создать новый заказ-наряд</a>
+
+    <br>
+    <a href="/" class="button">Вернуться на главную страницу</a>
 </body>
 </html>

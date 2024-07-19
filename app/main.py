@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from datetime import date, datetime
 from pydantic import BaseModel
+from PIL import Image
 import qrcode
 import io
 import base64
@@ -32,7 +33,7 @@ def get_db():
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse("form.html", {"request": request})
 
 @app.post("/submit")
 async def submit_data(batch_number: str = Form(...), part_number: str = Form(...), quantity: int = Form(...), db: Session = Depends(get_db)):
@@ -67,6 +68,45 @@ async def create_order(order: Order, db: Session = Depends(get_db)):
         "order_id": unique_id,
         "qr_code": qr_code
     })
+
+def generate_qr_code(data):
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=10,
+        border=0
+    )
+    qr.add_data(data)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+
+    # Изменяем размер изображения до 30x30 мм (примерно 113x113 пикселей при 96 DPI)
+    img = img.resize((113, 113), Image.NEAREST)
+
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    img_str = base64.b64encode(buffer.getvalue()).decode()
+    return f"data:image/png;base64,{img_str}"
+
+@app.get("/print_order/{order_id}", response_class=HTMLResponse)
+async def print_order(request: Request, order_id: int, db: Session = Depends(get_db)):
+    order = db.query(models.ProductionOrder).filter(models.ProductionOrder.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Заказ не найден")
+
+    # Генерация QR-кода
+    qr_code_data = f"Заказ-наряд №: {order.order_number}\n" \
+                    f"Дата публикации: {order.publication_date.strftime('%d.%m.%Y')}\n" \
+                    f"Обозначение чертежа: {order.drawing_designation}\n" \
+                    f"Количество: {order.quantity}\n" \
+                    f"Желательная дата изготовления: {order.desired_production_date_start.strftime('%d.%m.%Y')} - {order.desired_production_date_end.strftime('%d.%m.%Y')}\n" \
+                    f"Необходимый материал: {order.required_material}\n" \
+                    f"Срок поставки металла: {order.metal_delivery_date}\n" \
+                    f"Примечания: {order.notes}"
+
+    qr_code_img = generate_qr_code(qr_code_data)
+
+    return templates.TemplateResponse("order_blank.html", {"request": request, "order": order, "qr_code_img": qr_code_img})
 
 @app.get("/production_order_form", response_class=HTMLResponse)
 async def production_order_form(request: Request):
