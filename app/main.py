@@ -7,8 +7,9 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from datetime import date, datetime
 from pydantic import BaseModel
-from PIL import Image
+from pathlib import Path
 import qrcode
+from PIL import Image, ImageDraw, ImageFont
 import io
 import base64
 
@@ -69,24 +70,30 @@ async def create_order(order: Order, db: Session = Depends(get_db)):
         "qr_code": qr_code
     })
 
-def generate_qr_code(data):
-    qr = qrcode.QRCode(
-        version=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_L,
-        box_size=10,
-        border=0
-    )
+
+def generate_qr_code_with_text(data, text):
+    BASE_DIR = Path(__file__).resolve().parent
+    FONT_PATH = BASE_DIR / "static" / "fonts" / "CommitMonoNerdFont-Bold.otf"
+
+    qr = qrcode.QRCode(version=1, box_size=10, border=5, error_correction=qrcode.constants.ERROR_CORRECT_H)
     qr.add_data(data)
     qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
+    img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
 
-    # Изменяем размер изображения до 30x30 мм (примерно 113x113 пикселей при 96 DPI)
-    img = img.resize((113, 113), Image.NEAREST)
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.truetype(str(FONT_PATH), 280)  # Выберите шрифт и размер
+    text_width, text_height = draw.textbbox((0, 0), text, font=font)[2:] # Используем textbbox
+    text_x = (img.width - text_width) // 2
+    text_y = (img.height - text_height) // 2 - 10  #  Сдвигаем текст вверх
+    draw.text((text_x + 1, text_y + 1), text, font=font, fill="black") #  Черная тень
+    draw.text((text_x, text_y), text, font=font, fill="white")        #  Белый текст
 
     buffer = io.BytesIO()
     img.save(buffer, format="PNG")
     img_str = base64.b64encode(buffer.getvalue()).decode()
+    img.save("qr_code_with_text.png")
     return f"data:image/png;base64,{img_str}"
+
 
 @app.get("/print_order/{order_id}", response_class=HTMLResponse)
 async def print_order(request: Request, order_id: int, db: Session = Depends(get_db)):
@@ -104,7 +111,8 @@ async def print_order(request: Request, order_id: int, db: Session = Depends(get
                     f"Срок поставки металла: {order.metal_delivery_date}\n" \
                     f"Примечания: {order.notes}"
 
-    qr_code_img = generate_qr_code(qr_code_data)
+    qr_code_img = generate_qr_code_with_text(qr_code_data, order.order_number)
+
 
     return templates.TemplateResponse("order_blank.html", {"request": request, "order": order, "qr_code_img": qr_code_img})
 
