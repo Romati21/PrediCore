@@ -41,13 +41,13 @@ class ProductionOrder(Base):
     __tablename__ = "production_orders"
 
     id = Column(Integer, primary_key=True, index=True)
-    order_number = Column(String(6), unique=True, index=True)
-    publication_date = Column(Date, default=date.today)
-    drawing_designation = Column(String, nullable=False)
-    drawing_link = Column(String, nullable=False)
-    quantity = Column(Integer, nullable=False)
-    desired_production_date_start = Column(Date, nullable=False)
-    desired_production_date_end = Column(Date, nullable=False)
-    required_material = Column(String, nullable=False)
-    metal_delivery_date = Column(FlexibleDate, nullable=False)
+    order_number = Column(String, unique=True, index=True)
+    publication_date = Column(Date, default=date.today)  # Добавьте publication_date
+    drawing_designation = Column(String)
+    drawing_link = Column(String)
+    quantity = Column(Integer)
+    desired_production_date_start = Column(Date)
+    desired_production_date_end = Column(Date)
+    required_material = Column(String)
+    metal_delivery_date = Column(String) 
     notes = Column(String)

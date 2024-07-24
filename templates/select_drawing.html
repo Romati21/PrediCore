@@ -1,0 +1,43 @@
+<!-- templates/select_drawing.html -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Выбор чертежа</title>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+</head>
+<body>
+    <h1>Выберите чертеж</h1>
+    <div id="drawings"></div>
+    <script>
+        async function loadDrawings() {
+            const response = await axios.get('/api/drawings');
+            const drawings = response.data;
+            const drawingsDiv = document.getElementById('drawings');
+            drawings.forEach(drawing => {
+                const img = document.createElement('img');
+                img.src = `/drawings/${drawing}`;
+                img.width = 200;
+                img.onclick = () => selectDrawing(drawing);
+                drawingsDiv.appendChild(img);
+            });
+        }
+
+        async function selectDrawing(drawing) {
+            const orderNumber = new URLSearchParams(window.location.search).get('order_number');
+            const response = await axios.post('/api/process_drawing', {
+                drawing: drawing,
+                order_number: orderNumber
+            });
+            if (response.data.success) {
+                alert('Чертеж обработан и отправлен на печать');
+                window.close();
+            } else {
+                alert('Произошла ошибка при обработке чертежа');
+            }
+        }
+
+        loadDrawings();
+    </script>
+</body>
+</html>

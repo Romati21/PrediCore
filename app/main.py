@@ -10,8 +10,10 @@ from pydantic import BaseModel
 from pathlib import Path
 import qrcode
 from PIL import Image, ImageDraw, ImageFont
-import io
-import base64
+import io, base64, re, random, string, logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class Order(BaseModel):
     order_number: str
@@ -120,14 +122,37 @@ async def print_order(request: Request, order_id: int, db: Session = Depends(get
 async def production_order_form(request: Request):
     return templates.TemplateResponse("production_order_form.html", {"request": request})
 
+def generate_order_number(drawing_designation, db):
+    # Извлекаем первые две цифры из drawing_designation
+    match = re.search(r'\d{2}', drawing_designation)
+    if match:
+        prefix = match.group()
+    else:
+        prefix = '00'  # Если цифры не найдены, используем '00'
+
+    def generate_unique_code():
+        # Генерируем 4-значный код из цифр и заглавных букв
+        chars = string.ascii_uppercase + string.digits
+        return ''.join(random.choice(chars) for _ in range(4))
+
+    while True:
+        unique_code = generate_unique_code()
+        order_number = f'{prefix}{unique_code}'
+
+        # Проверяем, существует ли уже такой order_number
+        existing_order = db.query(models.ProductionOrder).filter_by(order_number=order_number).first()
+        if not existing_order:
+            return order_number
+
 @app.post("/submit_production_order")
 async def submit_production_order(
     drawing_designation: str = Form(...),
     drawing_link: str = Form(...),
     quantity: int = Form(...),
-    desired_production_date_start: str = Form(...),
-    desired_production_date_end: str = Form(...),
+    desired_production_date_start: str = Form(...),  # Изменено на str
+    desired_production_date_end: str = Form(...),    # Изменено на str
     required_material: str = Form(...),
+    publication_date=date.today(),  # Устанавливаем текущую дату
     metal_delivery_date: str = Form(...),
     notes: str = Form(...),
     db: Session = Depends(get_db)
@@ -136,20 +161,23 @@ async def submit_production_order(
     try:
         desired_production_date_start_parsed = datetime.strptime(desired_production_date_start, date_format).date()
         desired_production_date_end_parsed = datetime.strptime(desired_production_date_end, date_format).date()
-        metal_delivery_date_parsed = datetime.strptime(metal_delivery_date, date_format).date()
-    except ValueError:
-        # Если не удалось распарсить дату, оставляем как есть
-        metal_delivery_date_parsed = metal_delivery_date
+        # Оставляем metal_delivery_date как строку
+    except ValueError as e:
+        return {"error": f"Ошибка формата даты. Используйте {date_format}"}  # Возвращаем ошибку
+
+    # Генерируем order_number
+    order_number = generate_order_number(drawing_designation, db)
 
     production_order = repository.create_production_order(
         db=db,
+        order_number=order_number,
         drawing_designation=drawing_designation,
         drawing_link=drawing_link,
         quantity=quantity,
         desired_production_date_start=desired_production_date_start_parsed,
         desired_production_date_end=desired_production_date_end_parsed,
         required_material=required_material,
-        metal_delivery_date=metal_delivery_date_parsed,
+        metal_delivery_date=metal_delivery_date,  # Передаем как строку
         notes=notes
     )
     return RedirectResponse(url="/production_order_form", status_code=303)

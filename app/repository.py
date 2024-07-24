@@ -42,16 +42,16 @@ def generate_unique_order_number(db: Session):
 
 def create_production_order(
     db: Session,
+    order_number: str,
     drawing_designation: str,
     drawing_link: str,
     quantity: int,
     desired_production_date_start: date,
     desired_production_date_end: date,
     required_material: str,
-    metal_delivery_date: Union[date, str],
+    metal_delivery_date: str,  # Изменено на str
     notes: str
 ):
-    order_number = generate_unique_order_number(db)
     db_order = models.ProductionOrder(
         order_number=order_number,
         drawing_designation=drawing_designation,

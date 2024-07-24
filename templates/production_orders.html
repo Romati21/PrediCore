@@ -36,7 +36,11 @@
         {% for order in orders %}
         <tr>
             <td>{{ order.order_number }}</td>
-            <td>{{ order.publication_date.strftime('%d.%m.%Y') }}</td>
+            <td>
+                {% if order.publication_date %}
+                {{ order.publication_date.strftime('%d.%m.%Y') }}
+                {% endif %}
+            </td>
             <td><a href="{{ order.drawing_link }}" target="_blank">{{ order.drawing_designation }}</a></td>
             <td>{{ order.quantity }}</td>
             <td>{{ order.desired_production_date_start.strftime('%d.%m.%Y') }} - {{ order.desired_production_date_end.strftime('%d.%m.%Y') }}</td>
