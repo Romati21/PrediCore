@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Request, Form, UploadFile
+from fastapi import FastAPI, Depends, HTTPException, Request, Form, UploadFile, File
 from sqlalchemy.orm import Session
 from app import models, repository
 from app.database import SessionLocal, engine
@@ -8,12 +8,15 @@ from fastapi.staticfiles import StaticFiles
 from datetime import date, datetime
 from pydantic import BaseModel
 from pathlib import Path
-import qrcode
+import qrcode, os
 from PIL import Image, ImageDraw, ImageFont
 import io, base64, re, random, string, logging
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+if not os.path.exists("./static/drawings"):
+    os.makedirs("./static/drawings")
 
 class Order(BaseModel):
     order_number: str
@@ -147,26 +150,32 @@ def generate_order_number(drawing_designation, db):
 @app.post("/submit_production_order")
 async def submit_production_order(
     drawing_designation: str = Form(...),
-    drawing_link: str = Form(...),
+    drawing_file: UploadFile = File(...),
     quantity: int = Form(...),
-    desired_production_date_start: str = Form(...),  # Изменено на str
-    desired_production_date_end: str = Form(...),    # Изменено на str
+    desired_production_date_start: str = Form(...),
+    desired_production_date_end: str = Form(...),
     required_material: str = Form(...),
-    publication_date=date.today(),  # Устанавливаем текущую дату
+    publication_date=date.today(),
     metal_delivery_date: str = Form(...),
-    notes: str = Form(...),
+    notes: str = Form(None),
     db: Session = Depends(get_db)
 ):
     date_format = "%d.%m.%Y"
     try:
         desired_production_date_start_parsed = datetime.strptime(desired_production_date_start, date_format).date()
         desired_production_date_end_parsed = datetime.strptime(desired_production_date_end, date_format).date()
-        # Оставляем metal_delivery_date как строку
     except ValueError as e:
-        return {"error": f"Ошибка формата даты. Используйте {date_format}"}  # Возвращаем ошибку
+        return {"error": f"Ошибка формата даты. Используйте {date_format}"}
 
     # Генерируем order_number
     order_number = generate_order_number(drawing_designation, db)
+
+    # Сохраняем загруженный файл
+    file_location = f"./static/drawings/{order_number}_{drawing_file.filename}"
+    with open(file_location, "wb+") as file_object:
+        file_object.write(await drawing_file.read())
+
+    drawing_link = f"/static/drawings/{order_number}_{drawing_file.filename}"
 
     production_order = repository.create_production_order(
         db=db,
@@ -177,8 +186,8 @@ async def submit_production_order(
         desired_production_date_start=desired_production_date_start_parsed,
         desired_production_date_end=desired_production_date_end_parsed,
         required_material=required_material,
-        metal_delivery_date=metal_delivery_date,  # Передаем как строку
-        notes=notes
+        metal_delivery_date=metal_delivery_date,
+        notes=notes or ""
     )
     return RedirectResponse(url="/production_order_form", status_code=303)
 

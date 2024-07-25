@@ -24,15 +24,15 @@
     </head>
     <body>
         <h1>Заказ-наряд на производство оконцевателей</h1>
-        <form action="/submit_production_order" method="post" onsubmit="return validateForm()">
+        <form action="/submit_production_order" method="post" enctype="multipart/form-data">
 
             <!-- <label for="metal_delivery_date">Срок поставки металла:</label>
                  <input type="text" id="metal_delivery_date" name="metal_delivery_date" required><br><br> -->
             <label for="drawing_designation">Обозначение чертежа:</label>
             <input type="text" id="drawing_designation" name="drawing_designation" required><br><br>
 
-            <label for="drawing_link">Ссылка на чертеж:</label>
-            <input type="url" id="drawing_link" name="drawing_link" required><br><br>
+            <label for="drawing_link">Загрузите чертёж: </label>
+            <input type="file" name="drawing_file" accept=".jpg,.jpeg,.png,.pdf" required><br><br>
 
             <label for="quantity">Количество:</label>
             <input type="number" id="quantity" name="quantity" required min="1"><br><br>
