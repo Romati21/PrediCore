@@ -19,6 +19,84 @@
          background-color: #45a049;
      }
     </style>
+    <script>
+     function openDrawingSelector(drawingLink, orderNumber) {
+         console.log("openDrawingSelector called!");
+         console.log("drawingLink:", drawingLink);
+         console.log("orderNumber:", orderNumber);
+         // 1. Создаем iframe.
+         var iframe = document.createElement('iframe');
+         iframe.src = drawingLink; // URL
+         iframe.style.width = '80%';
+         iframe.style.height = '600px';
+         iframe.style.position = 'fixed';
+         iframe.style.top = '50%';
+         iframe.style.left = '50%';
+         iframe.style.transform = 'translate(-50%, -50%)';
+         iframe.style.border = '1px solid black';
+         iframe.style.zIndex = '1000'; //  Помещаем iframe поверх других элементов
+
+         // 2. Создаем фон (overlay).
+         var overlay = document.createElement('div');
+         overlay.style.width = '100%';
+         overlay.style.height = '100%';
+         overlay.style.position = 'fixed';
+         overlay.style.top = '0';
+         overlay.style.left = '0';
+         overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+         overlay.style.zIndex = '999'; //  Помещаем overlay под iframe
+
+         // 3. Добавляем iframe и overlay на страницу.
+         document.body.appendChild(iframe);
+         document.body.appendChild(overlay);
+
+         // 4. Добавляем обработчик клика на overlay для закрытия iframe.
+         overlay.onclick = function() {
+             document.body.removeChild(iframe);
+             document.body.removeChild(overlay);
+         };
+
+         iframe.onload = function() {
+             // 6. Реализуем механизм выбора чертежа в iframe.
+             //    Пример: поиск всех ссылок на изображения и добавление обработчика клика.
+             var drawingLinks = iframe.contentDocument.querySelectorAll('a[href$=".jpg"]');
+             for (var i = 0; i < drawingLinks.length; i++) {
+                 drawingLinks[i].onclick = function(event) {
+                     event.preventDefault(); //  Отменяем стандартное действие ссылки
+                     var drawingUrl = this.href;
+
+                     // 7. Отправляем запрос на сервер FastAPI.
+                     fetch('/process_drawing', {
+                         method: 'POST',
+                         headers: {
+                             'Content-Type': 'application/x-www-form-urlencoded',
+                         },
+                         body: 'order_number=' + encodeURIComponent(orderNumber) +
+                               '&drawing_url=' + encodeURIComponent(drawingUrl)
+                     })
+                         .then(response => response.json())
+                         .then(data => {
+                             //  Обрабатываем ответ сервера, например, открываем страницу для печати.
+                             if (data.status === 'success') {
+                                 window.open(data.print_url, '_blank');
+                             } else {
+                                 alert('Ошибка при обработке чертежа.');
+                             }
+                         })
+                         .catch(error => {
+                             console.error('Ошибка:', error);
+                             alert('Ошибка при отправке запроса на сервер.');
+                         })
+                         .finally(() => {
+                             //  Закрываем iframe и overlay.
+                             document.body.removeChild(iframe);
+                             document.body.removeChild(overlay);
+                         });
+                 };
+             }
+         };
+     }
+    </script>
 </head>
 <body>
     <h1>Список заказ-нарядов на производство</h1>
@@ -41,7 +119,8 @@
                 {{ order.publication_date.strftime('%d.%m.%Y') }}
                 {% endif %}
             </td>
-            <td><a href="{{ order.drawing_link }}" target="_blank">{{ order.drawing_designation }}</a></td>
+            <td><a href="#" onclick="openDrawingSelector('{{ order.drawing_link }}', '{{ order.order_number }}')">{{ order.drawing_designation }}</a></td>
+            <!-- <td><a href="{{ order.drawing_link }}" target="_blank">{{ order.drawing_designation }}</a></td> -->
             <td>{{ order.quantity }}</td>
             <td>{{ order.desired_production_date_start.strftime('%d.%m.%Y') }} - {{ order.desired_production_date_end.strftime('%d.%m.%Y') }}</td>
             <td>{{ order.required_material }}</td>

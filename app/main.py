@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Request, Form
+from fastapi import FastAPI, Depends, HTTPException, Request, Form, UploadFile
 from sqlalchemy.orm import Session
 from app import models, repository
 from app.database import SessionLocal, engine
@@ -186,6 +186,53 @@ async def submit_production_order(
 async def show_production_orders(request: Request, db: Session = Depends(get_db)):
     orders = repository.get_production_orders(db)
     return templates.TemplateResponse("production_orders.html", {"request": request, "orders": orders})
+
+@app.post("/process_drawing")
+async def process_drawing(request: Request, order_number: str, drawing_url: str, db: Session = Depends(get_db)):
+    try:
+        # 1. Загружаем чертеж с локального сайта
+        response = requests.get(drawing_url)
+        response.raise_for_status()  # Проверяем на ошибки HTTP
+
+        # 2. Создаем временный файл
+        temp_filename = f"drawing_{order_number}_{''.join(random.choice(string.ascii_letters) for _ in range(8))}.jpg"
+        temp_filepath = Path("temp") / temp_filename
+        temp_filepath.parent.mkdir(exist_ok=True)
+        with open(temp_filepath, "wb") as temp_file:
+            temp_file.write(response.content)
+
+        # 3. Добавляем QR-код
+        qr_code_data = f"Заказ-наряд №: {order_number}" #  Данные для QR-кода
+        qr_code_img = generate_qr_code_with_text(qr_code_data, order_number)
+
+        # 4. Открываем изображение, добавляем QR-код и сохраняем
+        drawing_img = Image.open(temp_filepath)
+        qr_code_img = Image.open(io.BytesIO(base64.b64decode(qr_code_img.split(",")[1])))
+        qr_code_img = qr_code_img.resize((100, 100))  # Изменяем размер QR-кода
+        drawing_img.paste(qr_code_img, (drawing_img.width - 110, drawing_img.height - 110))  # Помещаем QR-код в правый нижний угол
+        drawing_img.save(temp_filepath)
+
+        # 5. Генерируем URL для печати
+        print_url = f"/print_drawing/{temp_filename}"
+
+        return {"status": "success", "print_url": print_url}
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Ошибка загрузки чертежа: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка загрузки чертежа")
+    except Exception as e:
+        logger.error(f"Ошибка обработки чертежа: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка обработки чертежа")
+
+@app.get("/print_drawing/{filename}", response_class=HTMLResponse)
+async def print_drawing(request: Request, filename: str):
+    # 1. Проверяем, существует ли файл
+    filepath = Path("temp") / filename
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail="Чертеж не найден")
+
+    # 2. Отдаем HTML для печати
+    return templates.TemplateResponse("print_drawing.html", {"request": request, "drawing_path": f"/temp/{filename}"})
 
 if __name__ == "__main__":
     uvicorn.run(

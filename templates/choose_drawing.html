@@ -1,14 +1,9 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html>
     <head>
-        <meta charset="UTF-8">
-        <title>Выбор чертежа</title>
+        <title>Печать чертежа</title>
     </head>
-    <body>
-        <h1>Выбор чертежа для заказа №{{ order_id }}</h1>
-        <form action="/upload_drawing/{{ order_id }}" method="post" enctype="multipart/form-data">
-            <input type="file" name="drawing">
-            <button type="submit">Загрузить чертеж</button>
-        </form>
+    <body onload="window.print()">
+        <img src="{{ drawing_path }}" alt="Чертеж">
     </body>
 </html>
