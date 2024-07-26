@@ -12,11 +12,15 @@ import qrcode, os
 from PIL import Image, ImageDraw, ImageFont
 import io, base64, re, random, string, logging
 
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 if not os.path.exists("./static/drawings"):
     os.makedirs("./static/drawings")
+
+if not os.path.exists("static/modified_drawings"):
+    os.makedirs("static/modified_drawings")
 
 class Order(BaseModel):
     order_number: str
@@ -242,6 +246,84 @@ async def print_drawing(request: Request, filename: str):
 
     # 2. Отдаем HTML для печати
     return templates.TemplateResponse("print_drawing.html", {"request": request, "drawing_path": f"/temp/{filename}"})
+
+@app.get("/view_drawing/{order_id}")
+async def view_drawing(request: Request, order_id: int, db: Session = Depends(get_db)):
+    order = db.query(models.ProductionOrder).filter(models.ProductionOrder.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Заказ не найден")
+
+    # Генерация QR-кода
+    qr_code_data = f"Заказ-наряд №: {order.order_number}\n" \
+                   f"Дата публикации: {order.publication_date.strftime('%d.%m.%Y')}\n" \
+                   f"Обозначение чертежа: {order.drawing_designation}\n" \
+                   f"Количество: {order.quantity}\n" \
+                   f"Желательная дата изготовления: {order.desired_production_date_start.strftime('%d.%m.%Y')} - {order.desired_production_date_end.strftime('%d.%m.%Y')}\n" \
+                   f"Необходимый материал: {order.required_material}\n" \
+                   f"Срок поставки металла: {order.metal_delivery_date}\n" \
+                   f"Примечания: {order.notes}"
+
+    qr_code_img = generate_qr_code_with_text(qr_code_data, order.order_number)
+
+    # Открываем изображение чертежа
+    drawing_path = order.drawing_link.lstrip('/')
+    try:
+        img = Image.open(drawing_path)
+    except IOError:
+        raise HTTPException(status_code=404, detail="Чертеж не найден")
+
+    # Добавляем QR-код
+    qr_code = Image.open(io.BytesIO(base64.b64decode(qr_code_img.split(',')[1])))
+
+    # Вычисляем размер QR-кода (35 мм)
+    dpi = 300  # Предполагаемое DPI изображения
+    qr_size_px = int(35 / 25.4 * dpi)  # Преобразуем 35 мм в пиксели
+    qr_code = qr_code.resize((qr_size_px, qr_size_px))
+
+    # Вычисляем позицию для QR-кода (правый нижний угол с отступом 5 мм)
+    offset_px = int(5 / 25.4 * dpi)  # 5 мм отступ
+    qr_position = (img.width - qr_code.width - offset_px, img.height - qr_code.height - offset_px)
+
+    # Создаем новое изображение с альфа-каналом для QR-кода
+    qr_with_alpha = Image.new('RGBA', qr_code.size, (255, 255, 255, 0))
+    qr_with_alpha.paste(qr_code, (0, 0))
+
+    # Вставляем QR-код
+    img = img.convert('RGBA')
+    img.alpha_composite(qr_with_alpha, dest=qr_position)
+    img = img.convert('RGB')
+
+    # Добавляем дату загрузки
+    draw = ImageDraw.Draw(img)
+
+    # Используем шрифт по умолчанию
+    BASE_DIR = Path(__file__).resolve().parent
+    font_path = BASE_DIR / "static" / "fonts" / "CommitMonoNerdFont-Bold.otf"
+    font = ImageFont.truetype(font_path, 36)
+
+    upload_date = datetime.fromtimestamp(os.path.getmtime(drawing_path)).strftime('%d.%m.%Y')
+
+   # Вычисляем позицию для даты (левый нижний угол с отступом 2-3 мм)
+    date_offset_px = int(2.5 / 25.4 * dpi)  # 2.5 мм отступ
+
+    # Используем textbbox вместо textsize
+    bbox = draw.textbbox((0, 0), f"{upload_date}", font=font)
+    text_width = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+
+    date_position = (date_offset_px, img.height - text_height - date_offset_px)
+
+    draw.text(date_position, f"{upload_date}", font=font, fill=(0, 0, 0))
+
+    # Сохраняем модифицированное изображение
+    modified_drawings_dir = "static/modified_drawings"
+    if not os.path.exists(modified_drawings_dir):
+        os.makedirs(modified_drawings_dir)
+
+    modified_drawing_path = os.path.join(modified_drawings_dir, f"{order.order_number}_modified.png")
+    img.save(modified_drawing_path)
+
+    return templates.TemplateResponse("view_drawing.html", {"request": request, "order": order, "drawing_path": "/" + modified_drawing_path})
 
 if __name__ == "__main__":
     uvicorn.run(

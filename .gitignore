@@ -11,6 +11,9 @@ __pycache__/
 build/
 develop-eggs/
 static/qr_codes/
+static/modified_drawings
+static/processed_drawings
+static/drawings
 dist/
 downloads/
 eggs/

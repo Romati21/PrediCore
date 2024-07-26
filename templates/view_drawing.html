@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ru">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Просмотр чертежа</title>
+        <style>
+         body {
+             display: flex;
+             justify-content: center;
+             align-items: center;
+             height: 100vh;
+             margin: 0;
+             background-color: #f0f0f0;
+         }
+         img {
+             max-width: 90%;
+             max-height: 90%;
+             object-fit: contain;
+         }
+        </style>
+    </head>
+    <body>
+        <img src="{{ drawing_path }}" alt="Чертеж">
+    </body>
+</html>
