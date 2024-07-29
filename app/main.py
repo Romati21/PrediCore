@@ -100,7 +100,6 @@ def generate_qr_code_with_text(data, text):
     buffer = io.BytesIO()
     img.save(buffer, format="PNG")
     img_str = base64.b64encode(buffer.getvalue()).decode()
-    img.save("qr_code_with_text.png")
     return f"data:image/png;base64,{img_str}"
 
 
@@ -268,60 +267,63 @@ async def view_drawing(request: Request, order_id: int, db: Session = Depends(ge
     # Открываем изображение чертежа
     drawing_path = order.drawing_link.lstrip('/')
     try:
-        img = Image.open(drawing_path)
+        img = Image.open(drawing_path).convert('RGBA')
     except IOError:
         raise HTTPException(status_code=404, detail="Чертеж не найден")
 
-    # Добавляем QR-код
+    # Преобразуем base64 QR-код в изображение
     qr_code = Image.open(io.BytesIO(base64.b64decode(qr_code_img.split(',')[1])))
 
-    # Вычисляем размер QR-кода (35 мм)
+    # Изменяем размер QR-кода (35 мм)
     dpi = 300  # Предполагаемое DPI изображения
     qr_size_px = int(35 / 25.4 * dpi)  # Преобразуем 35 мм в пиксели
-    qr_code = qr_code.resize((qr_size_px, qr_size_px))
+    qr_code = qr_code.resize((qr_size_px, qr_size_px), Image.LANCZOS)
 
     # Вычисляем позицию для QR-кода (правый нижний угол с отступом 5 мм)
     offset_px = int(5 / 25.4 * dpi)  # 5 мм отступ
     qr_position = (img.width - qr_code.width - offset_px, img.height - qr_code.height - offset_px)
 
-    # Создаем новое изображение с альфа-каналом для QR-кода
-    qr_with_alpha = Image.new('RGBA', qr_code.size, (255, 255, 255, 0))
-    qr_with_alpha.paste(qr_code, (0, 0))
+    # Создаем новое изображение с белым фоном для QR-кода
+    qr_background = Image.new('RGBA', (qr_size_px + 20, qr_size_px + 20), (255, 255, 255, 255))
+    qr_background.paste(qr_code, (10, 10))
 
-    # Вставляем QR-код
-    img = img.convert('RGBA')
-    img.alpha_composite(qr_with_alpha, dest=qr_position)
-    img = img.convert('RGB')
+    # Вставляем QR-код с белым фоном
+    img.paste(qr_background, (qr_position[0] - 10, qr_position[1] - 10), qr_background)
 
     # Добавляем дату загрузки
     draw = ImageDraw.Draw(img)
 
-    # Используем шрифт по умолчанию
+    # Используем TrueType шрифт
     BASE_DIR = Path(__file__).resolve().parent
-    font_path = BASE_DIR / "static" / "fonts" / "CommitMonoNerdFont-Bold.otf"
-    font = ImageFont.truetype(font_path, 36)
+    FONT_PATH = BASE_DIR / "static" / "fonts" / "CommitMonoNerdFont-Bold.otf"
+
+    # Увеличиваем размер шрифта (например, до 24 пунктов)
+    font_size = 24
+    font = ImageFont.truetype(str(FONT_PATH), font_size)
 
     upload_date = datetime.fromtimestamp(os.path.getmtime(drawing_path)).strftime('%d.%m.%Y')
 
-   # Вычисляем позицию для даты (левый нижний угол с отступом 2-3 мм)
+    # Вычисляем позицию для даты (левый нижний угол с отступом 2-3 мм)
     date_offset_px = int(2.5 / 25.4 * dpi)  # 2.5 мм отступ
 
-    # Используем textbbox вместо textsize
-    bbox = draw.textbbox((0, 0), f"{upload_date}", font=font)
+    bbox = draw.textbbox((0, 0), f"Загружено: {upload_date}", font=font)
     text_width = bbox[2] - bbox[0]
     text_height = bbox[3] - bbox[1]
 
     date_position = (date_offset_px, img.height - text_height - date_offset_px)
 
-    draw.text(date_position, f"{upload_date}", font=font, fill=(0, 0, 0))
+    # Рисуем текст с тенью для лучшей читаемости
+    shadow_color = (200, 200, 200)  # Светло-серый цвет для тени
+    draw.text((date_position[0]+1, date_position[1]+1), f"Загружено: {upload_date}", font=font, fill=shadow_color)
+    draw.text(date_position, f"Загружено: {upload_date}", font=font, fill=(0, 0, 0))
 
-    # Сохраняем модифицированное изображение
+    # Сохраняем модифицированное изображение в формате PNG
     modified_drawings_dir = "static/modified_drawings"
     if not os.path.exists(modified_drawings_dir):
         os.makedirs(modified_drawings_dir)
 
     modified_drawing_path = os.path.join(modified_drawings_dir, f"{order.order_number}_modified.png")
-    img.save(modified_drawing_path)
+    img.save(modified_drawing_path, format='PNG')
 
     return templates.TemplateResponse("view_drawing.html", {"request": request, "order": order, "drawing_path": "/" + modified_drawing_path})
 
