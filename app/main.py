@@ -251,29 +251,39 @@ def mm_to_pixels(mm, dpi):
     return int(mm / 25.4 * dpi)
 
 def standardize_image(image_path, target_dpi=300):
+    # Создаем имя для стандартизированного изображения
+    base_name = Path(image_path).stem
+    standardized_path = Path(image_path).parent / f"{base_name}_standardized.png"
+
+    # Проверяем, существует ли уже стандартизированное изображение
+    if standardized_path.exists():
+        # Если существует, просто возвращаем путь к нему и его размеры
+        with Image.open(standardized_path) as img:
+            return str(standardized_path), img.size, img.size
+
     with Image.open(image_path) as img:
         # Получаем текущее DPI
         dpi = img.info.get('dpi', (96, 96))
         dpi = max(dpi[0], 96)
 
         # Сохраняем исходные размеры
-        original_width, original_height = img.size
+        original_size = img.size
 
         # Вычисляем новые размеры для целевого DPI
         new_width = int(img.width * target_dpi / dpi)
         new_height = int(img.height * target_dpi / dpi)
+        new_size = (new_width, new_height)
 
         # Изменяем размер изображения
-        img_resized = img.resize((new_width, new_height), Image.LANCZOS)
+        img_resized = img.resize(new_size, Image.LANCZOS)
 
         # Устанавливаем новое DPI
         img_resized.info['dpi'] = (target_dpi, target_dpi)
 
         # Сохраняем стандартизированное изображение
-        standardized_path = image_path.replace('.', '_standardized.')
         img_resized.save(standardized_path, dpi=(target_dpi, target_dpi))
 
-    return standardized_path, (original_width, original_height), (new_width, new_height)
+    return str(standardized_path), original_size, new_size
 
 @app.get("/view_drawing/{order_id}")
 async def view_drawing(request: Request, order_id: int, db: Session = Depends(get_db)):
@@ -298,100 +308,97 @@ async def view_drawing(request: Request, order_id: int, db: Session = Depends(ge
 
     # Проверяем, существует ли уже обработанный чертеж
     modified_drawings_dir = "static/modified_drawings"
-    modified_drawing_filename = f"{order.order_number}_{Path(drawing_path).stem}_modified.png"
+    upload_date = datetime.fromtimestamp(os.path.getmtime(drawing_path)).strftime('%d.%m.%Y')
+    modified_drawing_filename = f"{order.order_number}_{upload_date}.png"
     modified_drawing_path = os.path.join(modified_drawings_dir, modified_drawing_filename)
 
     if os.path.exists(modified_drawing_path):
         # Если обработанный чертеж существует, используем его
         img = Image.open(modified_drawing_path).convert('RGBA')
-        original_size = new_size = img.size  # Используем текущий размер как оригинальный и новый
+        original_size = new_size = img.size
     else:
         # Если обработанного чертежа нет, выполняем стандартизацию
         standardized_drawing_path, original_size, new_size = standardize_image(drawing_path)
         img = Image.open(standardized_drawing_path).convert('RGBA')
 
-    # Теперь мы всегда работаем с изображением 300 DPI
-    dpi = 300
+        # Теперь мы всегда работаем с изображением 300 DPI
+        dpi = 300
 
-    # Определяем ориентацию чертежа
-    is_landscape = img.width > img.height
+        # Определяем ориентацию чертежа
+        is_landscape = img.width > img.height
 
-    # Преобразуем base64 QR-код в изображение
-    qr_code = Image.open(io.BytesIO(base64.b64decode(qr_code_img.split(',')[1])))
+        # Преобразуем base64 QR-код в изображение
+        qr_code = Image.open(io.BytesIO(base64.b64decode(qr_code_img.split(',')[1])))
 
-    # Вычисляем размер QR-кода относительно оригинального размера изображения
-    original_width, original_height = original_size
-    if is_landscape:
-        qr_size_ratio = 0.14  # 14% от высоты изображения для альбомной ориентации
-        qr_size_px = int(original_height * qr_size_ratio)
-    else:
-        qr_size_ratio = 0.2  # 20% от ширины изображения для портретной ориентации
-        qr_size_px = int(original_width * qr_size_ratio)
+        # Вычисляем размер QR-кода относительно оригинального размера изображения
+        original_width, original_height = original_size
+        if is_landscape:
+            qr_size_ratio = 0.14  # 14% от высоты изображения для альбомной ориентации
+            qr_size_px = int(original_height * qr_size_ratio)
+        else:
+            qr_size_ratio = 0.2  # 20% от ширины изображения для портретной ориентации
+            qr_size_px = int(original_width * qr_size_ratio)
 
-    # Масштабируем размер QR-кода для нового размера изображения
-    scale_factor = new_size[0] / original_size[0]
-    qr_size_px = int(qr_size_px * scale_factor)
+        # Масштабируем размер QR-кода для нового размера изображения
+        scale_factor = new_size[0] / original_size[0]
+        qr_size_px = int(qr_size_px * scale_factor)
 
-    qr_code = qr_code.resize((qr_size_px, qr_size_px), Image.LANCZOS)
+        qr_code = qr_code.resize((qr_size_px, qr_size_px), Image.LANCZOS)
 
-    # Вычисляем позицию для QR-кода (правый нижний угол с отступом)
-    offset_ratio = 0.015 # 2% от размера изображения
-    offset_px = int(img.width * offset_ratio)
-    qr_position = (img.width - qr_code.width - offset_px, img.height - qr_code.height - offset_px)
+        # Вычисляем позицию для QR-кода (правый нижний угол с отступом)
+        offset_ratio = 0.015 # 1.5% от размера изображения
+        offset_px = int(img.width * offset_ratio)
+        qr_position = (img.width - qr_code.width - offset_px, img.height - qr_code.height - offset_px)
 
-    # Создаем новое изображение с белым фоном для QR-кода
-    qr_background = Image.new('RGBA', (qr_size_px + 20, qr_size_px + 20), (255, 255, 255, 255))
-    qr_background.paste(qr_code, (10, 10))
+        # Создаем новое изображение с белым фоном для QR-кода
+        qr_background = Image.new('RGBA', (qr_size_px + 20, qr_size_px + 20), (255, 255, 255, 255))
+        qr_background.paste(qr_code, (10, 10))
 
-    # Вставляем QR-код с белым фоном
-    img.paste(qr_background, (qr_position[0] - 10, qr_position[1] - 10), qr_background)
+        # Вставляем QR-код с белым фоном
+        img.paste(qr_background, (qr_position[0] - 10, qr_position[1] - 10), qr_background)
 
-    # Добавляем дату загрузки
-    draw = ImageDraw.Draw(img)
+        # Добавляем дату загрузки
+        draw = ImageDraw.Draw(img)
 
-    # Используем TrueType шрифт
-    BASE_DIR = Path(__file__).resolve().parent
-    FONT_PATH = BASE_DIR / "static" / "fonts" / "CommitMonoNerdFont-Bold.otf"
+        # Используем TrueType шрифт
+        BASE_DIR = Path(__file__).resolve().parent
+        FONT_PATH = BASE_DIR / "static" / "fonts" / "CommitMonoNerdFont-Bold.otf"
 
-    # Вычисляем размер шрифта относительно размера изображения
-    if is_landscape:
-        font_size_ratio = 0.30 # 1.5% от высоты изображения для альбомной ориентации
-        font_size = int(img.height * font_size_ratio)
-    else:
-        font_size_ratio = 0.39  # 2% от ширины изображения для портретной ориентации
-        font_size = int(img.width * font_size_ratio)
+        # Вычисляем размер шрифта относительно размера изображения
+        if is_landscape:
+            font_size_ratio = 0.30 # 30% от высоты изображения для альбомной ориентации
+            font_size = int(img.height * font_size_ratio)
+        else:
+            font_size_ratio = 0.39  # 39% от ширины изображения для портретной ориентации
+            font_size = int(img.width * font_size_ratio)
 
-    # Устанавливаем минимальный и максимальный размер шрифта
-    min_font_size = 12
-    max_font_size = 96
-    font_size = max(min(font_size, max_font_size), min_font_size)
+        # Устанавливаем минимальный и максимальный размер шрифта
+        min_font_size = 12
+        max_font_size = 96
+        font_size = max(min(font_size, max_font_size), min_font_size)
 
-    font = ImageFont.truetype(str(FONT_PATH), font_size)
+        font = ImageFont.truetype(str(FONT_PATH), font_size)
 
-    upload_date = datetime.fromtimestamp(os.path.getmtime(drawing_path)).strftime('%d.%m.%Y')
+        # Вычисляем позицию для даты (левый нижний угол с отступом)
+        date_offset_ratio = 0.015  # 1.5% от размера изображения
+        date_offset_px = int(img.width * date_offset_ratio)
 
-    # Вычисляем позицию для даты (левый нижний угол с отступом)
-    date_offset_ratio = 0.015  # 2% от размера изображения
-    date_offset_px = int(img.width * date_offset_ratio)
+        bbox = draw.textbbox((0, 0), f"{upload_date}", font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
 
-    bbox = draw.textbbox((0, 0), f"{upload_date}", font=font)
-    text_width = bbox[2] - bbox[0]
-    text_height = bbox[3] - bbox[1]
+        date_position = (date_offset_px, img.height - text_height - date_offset_px)
 
-    date_position = (date_offset_px, img.height - text_height - date_offset_px)
+        # Рисуем текст с тенью для лучшей читаемости
+        shadow_color = (200, 200, 200)  # Светло-серый цвет для тени
+        draw.text((date_position[0]+1, date_position[1]+1), f"{upload_date}", font=font, fill=shadow_color)
+        draw.text(date_position, f"{upload_date}", font=font, fill=(0, 0, 0))
 
-    # Рисуем текст с тенью для лучшей читаемости
-    shadow_color = (200, 200, 200)  # Светло-серый цвет для тени
-    draw.text((date_position[0]+1, date_position[1]+1), f"{upload_date}", font=font, fill=shadow_color)
-    draw.text(date_position, f"{upload_date}", font=font, fill=(0, 0, 0))
 
-    # Сохраняем модифицированное изображение
-    if not os.path.exists(modified_drawings_dir):
-        os.makedirs(modified_drawings_dir)
-
-    modified_drawing_path = os.path.join(modified_drawings_dir, f"{order.order_number}_{upload_date}.png")
-    img.save(modified_drawing_path, format='PNG')
-
+        # Сохраняем модифицированное изображение
+        if not os.path.exists(modified_drawings_dir):
+            os.makedirs(modified_drawings_dir)
+        img.save(modified_drawing_path, format='PNG')
 
     return templates.TemplateResponse("view_drawing.html", {"request": request, "order": order, "drawing_path": "/" + modified_drawing_path})
 
