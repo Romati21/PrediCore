@@ -285,11 +285,16 @@ def standardize_image(image_path, target_dpi=300):
 
     return str(standardized_path), original_size, new_size
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 @app.get("/view_drawing/{order_id}")
 async def view_drawing(request: Request, order_id: int, db: Session = Depends(get_db)):
     order = db.query(models.ProductionOrder).filter(models.ProductionOrder.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
+
+    logger.info(f"Обработка заказа №{order.order_number}")
 
     # Генерация QR-кода
     qr_code_data = f"Заказ-наряд №: {order.order_number}\n" \
@@ -305,6 +310,7 @@ async def view_drawing(request: Request, order_id: int, db: Session = Depends(ge
 
     # Получаем путь к чертежу
     drawing_path = order.drawing_link.lstrip('/')
+    logger.info(f"Исходный путь к чертежу: {drawing_path}")
 
     # Проверяем, существует ли уже обработанный чертеж
     modified_drawings_dir = "static/modified_drawings"
@@ -313,10 +319,11 @@ async def view_drawing(request: Request, order_id: int, db: Session = Depends(ge
     modified_drawing_path = os.path.join(modified_drawings_dir, modified_drawing_filename)
 
     if os.path.exists(modified_drawing_path):
-        # Если обработанный чертеж существует, используем его
+        logger.info(f"Обработанный чертеж уже существует: {modified_drawing_path}")
         img = Image.open(modified_drawing_path).convert('RGBA')
         original_size = new_size = img.size
     else:
+        logger.info("Создание нового обработанного чертежа")
         # Если обработанного чертежа нет, выполняем стандартизацию
         standardized_drawing_path, original_size, new_size = standardize_image(drawing_path)
         img = Image.open(standardized_drawing_path).convert('RGBA')
@@ -399,6 +406,34 @@ async def view_drawing(request: Request, order_id: int, db: Session = Depends(ge
         if not os.path.exists(modified_drawings_dir):
             os.makedirs(modified_drawings_dir)
         img.save(modified_drawing_path, format='PNG')
+        logger.info(f"Сохранен новый обработанный чертеж: {modified_drawing_path}")
+
+        # Проверяем, что модифицированный файл успешно создан
+        if os.path.exists(modified_drawing_path) and os.path.getsize(modified_drawing_path) > 0:
+            # Удаляем оригинальный и стандартизированный чертежи
+            try:
+                if os.path.exists(drawing_path):
+                    os.remove(drawing_path)
+                    logger.info(f"Удален файл: {drawing_path}")
+                else:
+                    logger.warning(f"Файл не найден для удаления: {drawing_path}")
+
+                if os.path.exists(standardized_drawing_path):
+                    os.remove(standardized_drawing_path)
+                    logger.info(f"Удален файл: {standardized_drawing_path}")
+                else:
+                    logger.warning(f"Файл не найден для удаления: {standardized_drawing_path}")
+            except Exception as e:
+                logger.error(f"Ошибка при удалении файлов: {e}")
+
+            # Обновляем ссылку на чертеж в базе данных
+            new_drawing_link = '/' + modified_drawing_path
+            old_drawing_link = order.drawing_link
+            order.update_drawing_link(new_drawing_link)
+            db.commit()
+            logger.info(f"Обновлена ссылка на чертеж: с {old_drawing_link} на {new_drawing_link}")
+        else:
+            logger.error(f"Ошибка: Модифицированный файл не был создан или пуст: {modified_drawing_path}")
 
     return templates.TemplateResponse("view_drawing.html", {"request": request, "order": order, "drawing_path": "/" + modified_drawing_path})
 

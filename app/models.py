@@ -2,6 +2,9 @@ from sqlalchemy import Column, Integer, String, Date
 from sqlalchemy.types import TypeDecorator
 from app.database import Base
 from datetime import date, datetime
+from sqlalchemy.sql import func
+from typing import Optional
+from sqlalchemy.orm import Mapped, mapped_column
 
 class Inventory(Base):
     __tablename__ = "inventory"
@@ -37,17 +40,35 @@ class FlexibleDate(TypeDecorator):
                 return value
         return None
 
+# class ProductionOrder(Base):
+#     __tablename__ = "production_orders"
+
+#     id = Column(Integer, primary_key=True, index=True)
+#     order_number = Column(String, unique=True, index=True)
+#     publication_date = Column(Date, default=date.today)  # Добавьте publication_date
+#     drawing_designation = Column(String)
+#     drawing_link = Column(String)
+#     quantity = Column(Integer)
+#     desired_production_date_start = Column(Date)
+#     desired_production_date_end = Column(Date)
+#     required_material = Column(String)
+#     metal_delivery_date = Column(String) 
+#     notes = Column(String)
+
 class ProductionOrder(Base):
     __tablename__ = "production_orders"
 
-    id = Column(Integer, primary_key=True, index=True)
-    order_number = Column(String, unique=True, index=True)
-    publication_date = Column(Date, default=date.today)  # Добавьте publication_date
-    drawing_designation = Column(String)
-    drawing_link = Column(String)
-    quantity = Column(Integer)
-    desired_production_date_start = Column(Date)
-    desired_production_date_end = Column(Date)
-    required_material = Column(String)
-    metal_delivery_date = Column(String) 
-    notes = Column(String)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    order_number: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
+    publication_date: Mapped[date] = mapped_column(Date, default=func.current_date(), nullable=False)
+    drawing_designation: Mapped[str] = mapped_column(String, nullable=False)
+    drawing_link: Mapped[str] = mapped_column(String, nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    desired_production_date_start: Mapped[date] = mapped_column(Date, nullable=False)
+    desired_production_date_end: Mapped[date] = mapped_column(Date, nullable=False)
+    required_material: Mapped[str] = mapped_column(String, nullable=False)
+    metal_delivery_date: Mapped[Optional[str]] = mapped_column(String)
+    notes: Mapped[Optional[str]] = mapped_column(String)
+
+    def update_drawing_link(self, new_link: str):
+        self.drawing_link = new_link
