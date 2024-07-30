@@ -296,13 +296,19 @@ async def view_drawing(request: Request, order_id: int, db: Session = Depends(ge
     # Получаем путь к чертежу
     drawing_path = order.drawing_link.lstrip('/')
 
-    # Стандартизируем изображение перед обработкой
-    standardized_drawing_path, original_size, new_size = standardize_image(drawing_path)
+    # Проверяем, существует ли уже обработанный чертеж
+    modified_drawings_dir = "static/modified_drawings"
+    modified_drawing_filename = f"{order.order_number}_{Path(drawing_path).stem}_modified.png"
+    modified_drawing_path = os.path.join(modified_drawings_dir, modified_drawing_filename)
 
-    try:
+    if os.path.exists(modified_drawing_path):
+        # Если обработанный чертеж существует, используем его
+        img = Image.open(modified_drawing_path).convert('RGBA')
+        original_size = new_size = img.size  # Используем текущий размер как оригинальный и новый
+    else:
+        # Если обработанного чертежа нет, выполняем стандартизацию
+        standardized_drawing_path, original_size, new_size = standardize_image(drawing_path)
         img = Image.open(standardized_drawing_path).convert('RGBA')
-    except IOError:
-        raise HTTPException(status_code=404, detail="Чертеж не найден")
 
     # Теперь мы всегда работаем с изображением 300 DPI
     dpi = 300
@@ -329,7 +335,7 @@ async def view_drawing(request: Request, order_id: int, db: Session = Depends(ge
     qr_code = qr_code.resize((qr_size_px, qr_size_px), Image.LANCZOS)
 
     # Вычисляем позицию для QR-кода (правый нижний угол с отступом)
-    offset_ratio = 0.02  # 2% от размера изображения
+    offset_ratio = 0.015 # 2% от размера изображения
     offset_px = int(img.width * offset_ratio)
     qr_position = (img.width - qr_code.width - offset_px, img.height - qr_code.height - offset_px)
 
@@ -379,13 +385,13 @@ async def view_drawing(request: Request, order_id: int, db: Session = Depends(ge
     draw.text((date_position[0]+1, date_position[1]+1), f"{upload_date}", font=font, fill=shadow_color)
     draw.text(date_position, f"{upload_date}", font=font, fill=(0, 0, 0))
 
-    # Сохраняем модифицированное изображение в формате PNG
-    modified_drawings_dir = "static/modified_drawings"
+    # Сохраняем модифицированное изображение
     if not os.path.exists(modified_drawings_dir):
         os.makedirs(modified_drawings_dir)
 
     modified_drawing_path = os.path.join(modified_drawings_dir, f"{order.order_number}_{upload_date}.png")
     img.save(modified_drawing_path, format='PNG')
+
 
     return templates.TemplateResponse("view_drawing.html", {"request": request, "order": order, "drawing_path": "/" + modified_drawing_path})
 
