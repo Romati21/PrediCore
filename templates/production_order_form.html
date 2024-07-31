@@ -20,40 +20,75 @@
          .button:hover {
              background-color: #45a049;
          }
+         form div {
+             margin-bottom: 15px;
+         }
+         label {
+             display: block;
+             margin-bottom: 5px;
+         }
+         input[type="text"], input[type="number"], textarea {
+             width: 100%;
+             padding: 5px;
+         }
+         input[type="submit"] {
+             padding: 10px 20px;
+             background-color: #4CAF50;
+             color: white;
+             border: none;
+             cursor: pointer;
+         }
         </style>
     </head>
     <body>
         <h1>Заказ-наряд на производство оконцевателей</h1>
-        <form action="/submit_production_order" method="post" enctype="multipart/form-data">
+        <form action="{{ url_for('submit_production_order', order_id=order.id if order else None) }}" method="post" enctype="multipart/form-data">
+            <div>
+                <label for="drawing_designation">Обозначение чертежа:</label>
+                <input type="text" id="drawing_designation" name="drawing_designation" value="{{ order.drawing_designation if order else '' }}" required>
+            </div>
 
-            <!-- <label for="metal_delivery_date">Срок поставки металла:</label>
-                 <input type="text" id="metal_delivery_date" name="metal_delivery_date" required><br><br> -->
-            <label for="drawing_designation">Обозначение чертежа:</label>
-            <input type="text" id="drawing_designation" name="drawing_designation" required><br><br>
+            <div>
+                <label for="quantity">Количество:</label>
+                <input type="number" id="quantity" name="quantity" value="{{ order.quantity if order else '' }}" required>
+            </div>
 
-            <label for="drawing_link">Загрузите чертёж: </label>
-            <input type="file" name="drawing_file" accept=".jpg,.jpeg,.png,.pdf" required><br><br>
+            <div>
+                <label for="desired_production_date_start">Желательная дата изготовления (начало):</label>
+                <input type="text" id="desired_production_date_start" name="desired_production_date_start" value="{{ order.desired_production_date_start if order else '' }}" required>
+            </div>
 
-            <label for="quantity">Количество:</label>
-            <input type="number" id="quantity" name="quantity" required min="1"><br><br>
+            <div>
+                <label for="desired_production_date_end">Желательная дата изготовления (конец):</label>
+                <input type="text" id="desired_production_date_end" name="desired_production_date_end" value="{{ order.desired_production_date_end if order else '' }}" required>
+            </div>
 
-            <label for="desired_production_date_start">Желательная дата изготовления (начало):</label>
-            <input type="text" id="desired_production_date_start" name="desired_production_date_start" required><br><br>
+            <div>
+                <label for="required_material">Необходимый материал:</label>
+                <input type="text" id="required_material" name="required_material" value="{{ order.required_material if order else '' }}" required>
+            </div>
 
-            <label for="desired_production_date_end">Желательная дата изготовления (конец):</label>
-            <input type="text" id="desired_production_date_end" name="desired_production_date_end" required><br><br>
+            <div>
+                <label for="metal_delivery_date">Срок поставки металла:</label>
+                <input type="text" id="metal_delivery_date" name="metal_delivery_date" value="{{ order.metal_delivery_date if order else '' }}" required>
+            </div>
 
-            <label for="required_material">Необходимый материал:</label>
-            <input type="text" id="required_material" name="required_material" required><br><br>
+            <div>
+                <label for="notes">Примечания:</label>
+                <textarea id="notes" name="notes">{{ order.notes if order else '' }}</textarea>
+            </div>
 
-            <label for="metal_delivery_date">Срок поставки металла:</label>
-            <input type="text" id="metal_delivery_date" name="metal_delivery_date" required>
+            <div>
+                <label for="drawing_file">Загрузите чертёж:</label>
+                <input type="file" id="drawing_file" name="drawing_file" {% if not order %}required{% endif %}>
+                {% if order and order.current_drawing %}
+                <p>Текущий чертеж: {{ order.current_drawing }}</p>
+                {% endif %}
+            </div>
 
-            <br><br>
-            <label for="notes">Примечания:</label><br>
-            <textarea id="notes" name="notes" rows="4" cols="50"></textarea><br><br>
-
-            <input type="submit" value="Отправить">
+            <div>
+                <input type="submit" value="{% if order %}Обновить{% else %}Создать{% endif %} заказ-наряд">
+            </div>
         </form>
 
         <br>

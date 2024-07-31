@@ -113,7 +113,7 @@
         </tr>
         {% for order in orders %}
         <tr>
-            <td>{{ order.order_number }}</td>
+            <td><a href="/edit_production_order/{{ order.id }}">{{ order.order_number }}</a></td>
             <td>
                 {% if order.publication_date %}
                 {{ order.publication_date.strftime('%d.%m.%Y') }}
