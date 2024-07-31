@@ -15,6 +15,7 @@ static/modified_drawings
 static/processed_drawings
 static/drawings
 static/fonts
+static/archived_drawings
 dist/
 downloads/
 eggs/

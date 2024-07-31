@@ -457,6 +457,44 @@ async def edit_production_order(request: Request, order_id: int, db: Session = D
 
     return templates.TemplateResponse("production_order_form.html", {"request": request, "order": order_data})
 
+@app.get("/drawing_history/{order_id}")
+async def drawing_history(request: Request, order_id: int, db: Session = Depends(get_db)):
+    order = db.query(models.ProductionOrder).filter(models.ProductionOrder.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Заказ не найден")
+
+    archived_drawings_dir = "static/archived_drawings"
+    archived_drawings = []
+
+    if os.path.exists(archived_drawings_dir):
+        for filename in os.listdir(archived_drawings_dir):
+            if filename.startswith(f"archived_{order.order_number}"):
+                drawing_path = os.path.join(archived_drawings_dir, filename)
+                creation_time = os.path.getctime(drawing_path)
+                archived_drawings.append({
+                    "filename": filename,
+                    "path": f"/{archived_drawings_dir}/{filename}",
+                    "created_at": datetime.fromtimestamp(creation_time).strftime('%Y-%m-%d %H:%M:%S')
+                })
+
+    # Добавляем текущий чертеж в список
+    if order.drawing_link:
+        current_drawing = {
+            "filename": os.path.basename(order.drawing_link),
+            "path": order.drawing_link,
+            "created_at": "Текущий чертеж"
+        }
+        archived_drawings.append(current_drawing)
+
+    # Сортируем чертежи по дате создания (кроме текущего чертежа)
+    archived_drawings.sort(key=lambda x: x['created_at'] if x['created_at'] != "Текущий чертеж" else "9999-12-31", reverse=True)
+
+    return templates.TemplateResponse("drawing_history.html", {
+        "request": request,
+        "order": order,
+        "archived_drawings": archived_drawings
+    })
+
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",

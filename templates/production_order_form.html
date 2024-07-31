@@ -91,6 +91,14 @@
             </div>
         </form>
 
+        {% if order %}
+        <div>
+            <a href="{{ url_for('drawing_history', order_id=order.id) }}" target="_blank">
+                <button type="button">История чертежей</button>
+            </a>
+        </div>
+        {% endif %}
+
         <br>
         <a href="/" class="button">Вернуться на главную страницу</a>
 
