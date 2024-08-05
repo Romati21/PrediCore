@@ -42,7 +42,7 @@
     </head>
     <body>
         <h1>Заказ-наряд на производство оконцевателей</h1>
-        <form action="{{ url_for('submit_production_order', order_id=order.id if order else None) }}" method="post" enctype="multipart/form-data">
+        <form action="{% if order %}{{ url_for('update_production_order', order_id=order.id) }}{% else %}{{ url_for('create_production_order') }}{% endif %}" method="post" enctype="multipart/form-data">
             <div>
                 <label for="drawing_designation">Обозначение чертежа:</label>
                 <input type="text" id="drawing_designation" name="drawing_designation" value="{{ order.drawing_designation if order else '' }}" required>

@@ -151,8 +151,7 @@ def generate_order_number(drawing_designation, db):
             return order_number
 
 @app.post("/submit_production_order")
-@app.post("/submit_production_order/{order_id}")
-async def submit_production_order(
+async def create_production_order(
     request: Request,
     drawing_designation: str = Form(...),
     drawing_file: UploadFile = File(None),
@@ -162,18 +161,50 @@ async def submit_production_order(
     required_material: str = Form(...),
     metal_delivery_date: str = Form(...),
     notes: str = Form(None),
-    order_id: int = None,
     db: Session = Depends(get_db)
 ):
-    if order_id:
-        # Редактирование существующего заказа
-        order = db.query(models.ProductionOrder).filter(models.ProductionOrder.id == order_id).first()
-        if not order:
-            raise HTTPException(status_code=404, detail="Заказ не найден")
-    else:
-        # Создание нового заказа
-        order = models.ProductionOrder()
-        order.order_number = generate_order_number(drawing_designation, db)
+    # Создание нового заказа
+    order = models.ProductionOrder()
+    order.order_number = generate_order_number(drawing_designation, db)
+
+    # Заполнение данных заказа
+    order.drawing_designation = drawing_designation
+    order.quantity = quantity
+    order.desired_production_date_start = datetime.strptime(desired_production_date_start, "%d.%m.%Y").date()
+    order.desired_production_date_end = datetime.strptime(desired_production_date_end, "%d.%m.%Y").date()
+    order.required_material = required_material
+    order.metal_delivery_date = metal_delivery_date
+    order.drawing_link = "placeholder"  # Задаем значение по умолчанию
+    order.notes = notes
+
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+
+    if drawing_file and drawing_file.filename:
+        # Если загружен чертеж, обрабатываем его
+        await view_drawing(request, order.id, db, drawing_file)
+
+    return RedirectResponse(url="/production_orders", status_code=303)
+
+@app.post("/submit_production_order/{order_id}")
+async def update_production_order(
+    order_id: int,
+    request: Request,
+    drawing_designation: str = Form(...),
+    drawing_file: UploadFile = File(None),
+    quantity: int = Form(...),
+    desired_production_date_start: str = Form(...),
+    desired_production_date_end: str = Form(...),
+    required_material: str = Form(...),
+    metal_delivery_date: str = Form(...),
+    notes: str = Form(None),
+    db: Session = Depends(get_db)
+):
+    # Редактирование существующего заказа
+    order = db.query(models.ProductionOrder).filter(models.ProductionOrder.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Заказ не найден")
 
     # Обновление данных заказа
     order.drawing_designation = drawing_designation
@@ -188,8 +219,6 @@ async def submit_production_order(
         # Если загружен новый чертеж, обрабатываем его
         await view_drawing(request, order.id, db, drawing_file)
 
-    if not order_id:
-        db.add(order)
     db.commit()
 
     return RedirectResponse(url="/production_orders", status_code=303)
