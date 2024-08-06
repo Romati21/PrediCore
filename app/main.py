@@ -9,7 +9,7 @@ from datetime import date, datetime
 from pydantic import BaseModel
 from pathlib import Path
 import qrcode, os, math
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFile
 import io, base64, re, random, string, logging
 
 
@@ -40,6 +40,7 @@ def get_db():
         yield db
     finally:
         db.close()
+
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
@@ -279,7 +280,11 @@ def mm_to_pixels(mm, dpi):
     """Конвертирует миллиметры в пиксели."""
     return int(mm / 25.4 * dpi)
 
-def standardize_image(image_path, target_dpi=300):
+# Увеличиваем лимит для больших файлов
+Image.MAX_IMAGE_PIXELS = None
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+
+def standardize_image(image_path, target_dpi=300, max_size=(5000, 5000)):
     # Создаем имя для стандартизированного изображения
     base_name = Path(image_path).stem
     standardized_path = Path(image_path).parent / f"{base_name}_standardized.png"
@@ -290,32 +295,67 @@ def standardize_image(image_path, target_dpi=300):
         with Image.open(standardized_path) as img:
             return str(standardized_path), img.size, img.size
 
-    with Image.open(image_path) as img:
-        # Получаем текущее DPI
-        dpi = img.info.get('dpi', (96, 96))
-        dpi = max(dpi[0], 96)
+    try:
+        with Image.open(image_path) as img:
+            # Получаем текущее DPI
+            dpi = img.info.get('dpi', (96, 96))
+            dpi = max(dpi[0], 96)
 
-        # Сохраняем исходные размеры
-        original_size = img.size
+            # Сохраняем исходные размеры
+            original_size = img.size
 
-        # Вычисляем новые размеры для целевого DPI
-        new_width = int(img.width * target_dpi / dpi)
-        new_height = int(img.height * target_dpi / dpi)
-        new_size = (new_width, new_height)
+            # Вычисляем новые размеры для целевого DPI, сохраняя соотношение сторон
+            scale_factor = target_dpi / dpi
+            new_width = int(img.width * scale_factor)
+            new_height = int(img.height * scale_factor)
 
-        # Изменяем размер изображения
-        img_resized = img.resize(new_size, Image.LANCZOS)
+            # Проверяем, не превышает ли новый размер максимально допустимый
+            if new_width > max_size[0] or new_height > max_size[1]:
+                # Если превышает, уменьшаем, сохраняя соотношение сторон
+                scale = min(max_size[0] / new_width, max_size[1] / new_height)
+                new_width = int(new_width * scale)
+                new_height = int(new_height * scale)
 
-        # Устанавливаем новое DPI
-        img_resized.info['dpi'] = (target_dpi, target_dpi)
+            new_size = (new_width, new_height)
 
-        # Сохраняем стандартизированное изображение
-        img_resized.save(standardized_path, dpi=(target_dpi, target_dpi))
+            # Изменяем размер изображения
+            img_resized = img.resize(new_size, Image.LANCZOS)
 
-    return str(standardized_path), original_size, new_size
+            # Устанавливаем новое DPI
+            img_resized.info['dpi'] = (target_dpi, target_dpi)
+
+            # Сохраняем стандартизированное изображение
+            img_resized.save(standardized_path, dpi=(target_dpi, target_dpi))
+
+        return str(standardized_path), original_size, new_size
+
+    except Exception as e:
+        logger.error(f"Ошибка при стандартизации изображения {image_path}: {str(e)}")
+        return image_path, (0, 0), (0, 0)  # Возвращаем оригинальный путь и нулевые размеры в случае ошибки
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+def safe_get_mtime(file_path):
+    try:
+        return os.path.getmtime(file_path)
+    except FileNotFoundError:
+        logger.warning(f"Файл не найден: {file_path}")
+        return None
+
+def archive_old_drawing(old_drawing_path):
+    if os.path.exists(old_drawing_path):
+        archive_dir = "static/archived_drawings"
+        if not os.path.exists(archive_dir):
+            os.makedirs(archive_dir)
+        archived_drawing_filename = f"archived_{os.path.basename(old_drawing_path)}"
+        archived_drawing_path = os.path.join(archive_dir, archived_drawing_filename)
+        os.rename(old_drawing_path, archived_drawing_path)
+        logger.info(f"Старый чертеж архивирован: {archived_drawing_path}")
+        return archived_drawing_path
+    else:
+        logger.warning(f"Старый чертеж не найден для архивации: {old_drawing_path}")
+        return None
 
 @app.get("/view_drawing/{order_id}")
 @app.post("/view_drawing/{order_id}")
@@ -325,144 +365,159 @@ async def view_drawing(
     db: Session = Depends(get_db),
     new_drawing: UploadFile = File(None)
 ):
-    order = db.query(models.ProductionOrder).filter(models.ProductionOrder.id == order_id).first()
-    if not order:
-        raise HTTPException(status_code=404, detail="Заказ не найден")
+    try:
+        order = db.query(models.ProductionOrder).filter(models.ProductionOrder.id == order_id).first()
+        if not order:
+            raise HTTPException(status_code=404, detail="Заказ не найден")
 
-    logger.info(f"Обработка заказа №{order.order_number}")
+        logger.info(f"Обработка заказа №{order.order_number}")
 
-    if new_drawing:
-        # Обработка нового загруженного чертежа
-        drawing_filename = f"{order.order_number}_{new_drawing.filename}"
-        drawing_path = f"static/drawings/{drawing_filename}"
-        with open(drawing_path, "wb") as buffer:
-            buffer.write(await new_drawing.read())
-        logger.info(f"Загружен новый чертеж: {drawing_path}")
-    else:
-        # Использование существующего чертежа
-        drawing_path = order.drawing_link.lstrip('/')
-
-    logger.info(f"Путь к чертежу: {drawing_path}")
-
-    # Проверяем, существует ли уже обработанный чертеж
-    modified_drawings_dir = "static/modified_drawings"
-    upload_date = datetime.fromtimestamp(os.path.getmtime(drawing_path)).strftime('%d.%m.%Y')
-    modified_drawing_filename = f"{order.order_number}_{upload_date}.png"
-    modified_drawing_path = os.path.join(modified_drawings_dir, modified_drawing_filename)
-
-    if os.path.exists(modified_drawing_path) and not new_drawing:
-        logger.info(f"Обработанный чертеж уже существует: {modified_drawing_path}")
-        img = Image.open(modified_drawing_path).convert('RGBA')
-        original_size = new_size = img.size
-    else:
-        logger.info("Создание нового обработанного чертежа")
-        # Стандартизация изображения
-        standardized_drawing_path, original_size, new_size = standardize_image(drawing_path)
-        img = Image.open(standardized_drawing_path).convert('RGBA')
-
-        # Генерация QR-кода
-        qr_code_data = f"Заказ-наряд №: {order.order_number}\n" \
-                       f"Дата публикации: {order.publication_date.strftime('%d.%m.%Y')}\n" \
-                       f"Обозначение чертежа: {order.drawing_designation}\n" \
-                       f"Количество: {order.quantity}\n" \
-                       f"Желательная дата изготовления: {order.desired_production_date_start.strftime('%d.%m.%Y')} - {order.desired_production_date_end.strftime('%d.%m.%Y')}\n" \
-                       f"Необходимый материал: {order.required_material}\n" \
-                       f"Срок поставки металла: {order.metal_delivery_date}\n" \
-                       f"Примечания: {order.notes}"
-
-        qr_code_img = generate_qr_code_with_text(qr_code_data, order.order_number)
-        qr_code = Image.open(io.BytesIO(base64.b64decode(qr_code_img.split(',')[1])))
-
-        # Определяем ориентацию чертежа
-        is_landscape = img.width > img.height
-
-        # Вычисляем размер QR-кода
-        if is_landscape:
-            qr_size_ratio = 0.14  # 14% от высоты изображения для альбомной ориентации
-            qr_size_px = int(img.height * qr_size_ratio)
-        else:
-            qr_size_ratio = 0.2  # 20% от ширины изображения для портретной ориентации
-            qr_size_px = int(img.width * qr_size_ratio)
-
-        # Создаем новое изображение с белым фоном для QR-кода
-        qr_background = Image.new('RGBA', (qr_size_px, qr_size_px), (255, 255, 255, 255))
-        qr_code = qr_code.resize((qr_size_px, qr_size_px), Image.LANCZOS).convert('RGBA')
-
-        # Наложение QR-кода на белый фон
-        qr_background.alpha_composite(qr_code)
-
-        # Вычисляем позицию для QR-кода (правый нижний угол с отступом)
-        offset_ratio = 0.015  # 1.5% от размера изображения
-        offset_px = int(img.width * offset_ratio)
-        qr_position = (img.width - qr_size_px - offset_px, img.height - qr_size_px - offset_px)
-
-        # Убеждаемся, что основное изображение в режиме RGBA
-        img = img.convert("RGBA")
-
-        # Вставляем QR-код
-        img.alpha_composite(qr_background, qr_position)
-
-        # Добавляем дату загрузки
-        draw = ImageDraw.Draw(img)
-
-        # Используем TrueType шрифт
-        BASE_DIR = Path(__file__).resolve().parent
-        FONT_PATH = BASE_DIR / "static" / "fonts" / "CommitMonoNerdFont-Bold.otf"
-
-        # Вычисляем размер шрифта относительно размера изображения
-        if is_landscape:
-            font_size_ratio = 0.30 # 30% от высоты изображения для альбомной ориентации
-            font_size = int(img.height * font_size_ratio)
-        else:
-            font_size_ratio = 0.39  # 39% от ширины изображения для портретной ориентации
-            font_size = int(img.width * font_size_ratio)
-
-        # Устанавливаем минимальный и максимальный размер шрифта
-        min_font_size = 12
-        max_font_size = 96
-        font_size = max(min(font_size, max_font_size), min_font_size)
-
-        font = ImageFont.truetype(str(FONT_PATH), font_size)
-
-        # Вычисляем позицию для даты (левый нижний угол с отступом)
-        date_offset_ratio = 0.015  # 1.5% от размера изображения
-        date_offset_px = int(img.width * date_offset_ratio)
-
-        bbox = draw.textbbox((0, 0), f"{upload_date}", font=font)
-        text_width = bbox[2] - bbox[0]
-        text_height = bbox[3] - bbox[1]
-
-        date_position = (date_offset_px, img.height - text_height - date_offset_px)
-
-        # Рисуем текст с тенью для лучшей читаемости
-        shadow_color = (200, 200, 200)  # Светло-серый цвет для тени
-        draw.text((date_position[0]+1, date_position[1]+1), f"{upload_date}", font=font, fill=shadow_color)
-        draw.text(date_position, f"{upload_date}", font=font, fill=(0, 0, 0))
-
-        # Сохраняем модифицированное изображение
-        if not os.path.exists(modified_drawings_dir):
-            os.makedirs(modified_drawings_dir)
-        img.save(modified_drawing_path, format='PNG')
-
-        # Если это новый чертеж, обновляем ссылку в базе данных
         if new_drawing:
-            old_drawing_link = order.drawing_link
-            order.drawing_link = '/' + modified_drawing_path
-            db.commit()
-            logger.info(f"Обновлена ссылка на чертеж: с {old_drawing_link} на {order.drawing_link}")
+            # Обработка нового загруженного чертежа
+            drawing_filename = f"{order.order_number}_{new_drawing.filename}"
+            drawing_path = f"static/drawings/{drawing_filename}"
+            with open(drawing_path, "wb") as buffer:
+                buffer.write(await new_drawing.read())
+            logger.info(f"Загружен новый чертеж: {drawing_path}")
+        else:
+            # Использование существующего чертежа
+            drawing_path = order.drawing_link.lstrip('/')
 
-            # Архивируем старый чертеж, если он существует
-            if old_drawing_link:
-                old_drawing_path = old_drawing_link.lstrip('/')
-                if os.path.exists(old_drawing_path):
-                    archive_dir = "static/archived_drawings"
-                    if not os.path.exists(archive_dir):
-                        os.makedirs(archive_dir)
-                    archived_drawing_path = os.path.join(archive_dir, f"archived_{os.path.basename(old_drawing_path)}")
-                    os.rename(old_drawing_path, archived_drawing_path)
-                    logger.info(f"Старый чертеж архивирован: {archived_drawing_path}")
+        logger.info(f"Путь к чертежу: {drawing_path}")
 
-    return templates.TemplateResponse("view_drawing.html", {"request": request, "order": order, "drawing_path": "/" + modified_drawing_path})
+        if not os.path.exists(drawing_path):
+            # Попытка найти чертеж в архиве
+            archived_drawing_path = f"static/archived_drawings/archived_{os.path.basename(drawing_path)}"
+            if os.path.exists(archived_drawing_path):
+                drawing_path = archived_drawing_path
+                logger.info(f"Найден архивированный чертеж: {drawing_path}")
+            else:
+                raise HTTPException(status_code=404, detail="Чертеж не найден")
+
+        # Проверяем, существует ли уже обработанный чертеж
+        modified_drawings_dir = "static/modified_drawings"
+        mtime = safe_get_mtime(drawing_path)
+        if mtime is None:
+            raise HTTPException(status_code=404, detail="Чертеж не найден")
+
+        upload_date = datetime.fromtimestamp(mtime).strftime('%d.%m.%Y')
+        modified_drawing_filename = f"{order.order_number}_{upload_date}.png"
+        modified_drawing_path = os.path.join(modified_drawings_dir, modified_drawing_filename)
+
+        if os.path.exists(modified_drawing_path) and not new_drawing:
+            logger.info(f"Обработанный чертеж уже существует: {modified_drawing_path}")
+            with Image.open(modified_drawing_path) as img:
+                original_size = new_size = img.size
+        else:
+            logger.info("Создание нового обработанного чертежа")
+            # Стандартизация изображения
+            standardized_drawing_path, original_size, new_size = standardize_image(drawing_path)
+            if original_size == (0, 0) or new_size == (0, 0):
+                logger.error(f"Не удалось стандартизировать изображение: {drawing_path}")
+                raise HTTPException(status_code=500, detail="Ошибка обработки изображения")
+
+            with Image.open(standardized_drawing_path).convert('RGBA') as img:
+                # Генерация QR-кода
+                qr_code_data = f"Заказ-наряд №: {order.order_number}\n" \
+                               f"Дата публикации: {order.publication_date.strftime('%d.%m.%Y')}\n" \
+                               f"Обозначение чертежа: {order.drawing_designation}\n" \
+                               f"Количество: {order.quantity}\n" \
+                               f"Желательная дата изготовления: {order.desired_production_date_start.strftime('%d.%m.%Y')} - {order.desired_production_date_end.strftime('%d.%m.%Y')}\n" \
+                               f"Необходимый материал: {order.required_material}\n" \
+                               f"Срок поставки металла: {order.metal_delivery_date}\n" \
+                               f"Примечания: {order.notes}"
+
+                qr_code_img = generate_qr_code_with_text(qr_code_data, order.order_number)
+                qr_code = Image.open(io.BytesIO(base64.b64decode(qr_code_img.split(',')[1])))
+
+                # Определяем ориентацию чертежа
+                is_landscape = img.width > img.height
+
+                # Вычисляем размер QR-кода
+                if is_landscape:
+                    qr_size_ratio = 0.14  # 14% от высоты изображения для альбомной ориентации
+                    qr_size_px = int(img.height * qr_size_ratio)
+                else:
+                    qr_size_ratio = 0.2  # 20% от ширины изображения для портретной ориентации
+                    qr_size_px = int(img.width * qr_size_ratio)
+
+                # Создаем новое изображение с белым фоном для QR-кода
+                qr_background = Image.new('RGBA', (qr_size_px, qr_size_px), (255, 255, 255, 255))
+                qr_code = qr_code.resize((qr_size_px, qr_size_px), Image.LANCZOS).convert('RGBA')
+
+                # Наложение QR-кода на белый фон
+                qr_background.alpha_composite(qr_code)
+
+                # Вычисляем позицию для QR-кода (правый нижний угол с отступом)
+                offset_ratio = 0.015  # 1.5% от размера изображения
+                offset_px = int(img.width * offset_ratio)
+                qr_position = (img.width - qr_size_px - offset_px, img.height - qr_size_px - offset_px)
+
+                # Вставляем QR-код
+                img.alpha_composite(qr_background, qr_position)
+
+                # Добавляем дату загрузки
+                draw = ImageDraw.Draw(img)
+
+                # Используем TrueType шрифт
+                BASE_DIR = Path(__file__).resolve().parent
+                FONT_PATH = BASE_DIR / "static" / "fonts" / "CommitMonoNerdFont-Bold.otf"
+
+                # Вычисляем размер шрифта относительно размера изображения
+                if is_landscape:
+                    font_size_ratio = 0.30 # 30% от высоты изображения для альбомной ориентации
+                    font_size = int(img.height * font_size_ratio)
+                else:
+                    font_size_ratio = 0.39  # 39% от ширины изображения для портретной ориентации
+                    font_size = int(img.width * font_size_ratio)
+
+                # Устанавливаем минимальный и максимальный размер шрифта
+                min_font_size = 12
+                max_font_size = 96
+                font_size = max(min(font_size, max_font_size), min_font_size)
+
+                font = ImageFont.truetype(str(FONT_PATH), font_size)
+
+                # Вычисляем позицию для даты (левый нижний угол с отступом)
+                date_offset_ratio = 0.015  # 1.5% от размера изображения
+                date_offset_px = int(img.width * date_offset_ratio)
+
+                bbox = draw.textbbox((0, 0), f"{upload_date}", font=font)
+                text_width = bbox[2] - bbox[0]
+                text_height = bbox[3] - bbox[1]
+
+                date_position = (date_offset_px, img.height - text_height - date_offset_px)
+
+                # Рисуем текст с тенью для лучшей читаемости
+                shadow_color = (200, 200, 200)  # Светло-серый цвет для тени
+                draw.text((date_position[0]+1, date_position[1]+1), f"{upload_date}", font=font, fill=shadow_color)
+                draw.text(date_position, f"{upload_date}", font=font, fill=(0, 0, 0))
+
+                # Сохраняем модифицированное изображение
+                if not os.path.exists(modified_drawings_dir):
+                    os.makedirs(modified_drawings_dir)
+                img.save(modified_drawing_path, format='PNG')
+
+            # Если это новый чертеж, обновляем ссылку в базе данных
+            if new_drawing:
+                old_drawing_link = order.drawing_link
+                order.drawing_link = '/' + modified_drawing_path
+                db.commit()
+                logger.info(f"Обновлена ссылка на чертеж: с {old_drawing_link} на {order.drawing_link}")
+
+                # Архивируем старый чертеж, если он существует
+                if old_drawing_link:
+                    archived_path = archive_old_drawing(old_drawing_link.lstrip('/'))
+                    if archived_path:
+                        logger.info(f"Старый чертеж архивирован: {archived_path}")
+
+        return templates.TemplateResponse("view_drawing.html", {"request": request, "order": order, "drawing_path": "/" + modified_drawing_path})
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка при обработке чертежа: {str(e)}")
+        raise HTTPException(status_code=500, detail="Ошибка обработки чертежа")
 
 @app.get("/edit_production_order/{order_id}")
 async def edit_production_order(request: Request, order_id: int, db: Session = Depends(get_db)):
@@ -499,21 +554,26 @@ async def drawing_history(request: Request, order_id: int, db: Session = Depends
         for filename in os.listdir(archived_drawings_dir):
             if filename.startswith(f"archived_{order.order_number}"):
                 drawing_path = os.path.join(archived_drawings_dir, filename)
-                creation_time = os.path.getctime(drawing_path)
-                archived_drawings.append({
-                    "filename": filename,
-                    "path": f"/{archived_drawings_dir}/{filename}",
-                    "created_at": datetime.fromtimestamp(creation_time).strftime('%Y-%m-%d %H:%M:%S')
-                })
+                creation_time = safe_get_mtime(drawing_path)
+                if creation_time is not None:
+                    archived_drawings.append({
+                        "filename": filename,
+                        "path": f"/{archived_drawings_dir}/{filename}",
+                        "created_at": datetime.fromtimestamp(creation_time).strftime('%Y-%m-%d %H:%M:%S')
+                    })
 
     # Добавляем текущий чертеж в список
     if order.drawing_link:
-        current_drawing = {
-            "filename": os.path.basename(order.drawing_link),
-            "path": order.drawing_link,
-            "created_at": "Текущий чертеж"
-        }
-        archived_drawings.append(current_drawing)
+        current_drawing_path = order.drawing_link.lstrip('/')
+        if os.path.exists(current_drawing_path):
+            current_drawing = {
+                "filename": os.path.basename(current_drawing_path),
+                "path": order.drawing_link,
+                "created_at": "Текущий чертеж"
+            }
+            archived_drawings.append(current_drawing)
+        else:
+            logger.warning(f"Текущий чертеж не найден: {current_drawing_path}")
 
     # Сортируем чертежи по дате создания (кроме текущего чертежа)
     archived_drawings.sort(key=lambda x: x['created_at'] if x['created_at'] != "Текущий чертеж" else "9999-12-31", reverse=True)
