@@ -11,6 +11,8 @@ from pathlib import Path
 import qrcode, os, math
 from PIL import Image, ImageDraw, ImageFont, ImageFile
 import io, base64, re, random, string, logging
+from fastapi import BackgroundTasks
+from app.cleanup_drawings import cleanup_original_drawings
 
 
 logging.basicConfig(level=logging.INFO)
@@ -230,7 +232,7 @@ async def show_production_orders(request: Request, db: Session = Depends(get_db)
     return templates.TemplateResponse("production_orders.html", {"request": request, "orders": orders})
 
 @app.post("/process_drawing")
-async def process_drawing(request: Request, order_number: str, drawing_url: str, db: Session = Depends(get_db)):
+async def process_drawing(request: Request, order_number: str, drawing_url: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     try:
         # 1. Загружаем чертеж с локального сайта
         response = requests.get(drawing_url)
@@ -256,6 +258,9 @@ async def process_drawing(request: Request, order_number: str, drawing_url: str,
 
         # 5. Генерируем URL для печати
         print_url = f"/print_drawing/{temp_filename}"
+
+        # Вызываем функцию очистки напрямую
+        cleanup_original_drawings(order_number)
 
         return {"status": "success", "print_url": print_url}
 
@@ -583,6 +588,8 @@ async def drawing_history(request: Request, order_id: int, db: Session = Depends
         "order": order,
         "archived_drawings": archived_drawings
     })
+
+
 
 if __name__ == "__main__":
     uvicorn.run(
