@@ -120,7 +120,7 @@
                 {% endif %}
             </td>
             <!-- <td><a href="#" onclick="openDrawingSelector('{{ order.drawing_link }}', '{{ order.order_number }}')">{{ order.drawing_designation }}</a></td> -->
-            <td><a href="/view_drawing/{{ order.id }}" target="_blank">{{ order.drawing_designation }}</a></td>
+            <td><a href="{{ url_for('view_drawing', order_id=order.id) }}" target="_blank">{{ order.drawing_designation }}</a></td>
             <!-- <td><a href="{{ order.drawing_link }}" target="_blank">{{ order.drawing_designation }}</a></td> -->
             <td>{{ order.quantity }}</td>
             <td>{{ order.desired_production_date_start.strftime('%d.%m.%Y') }} - {{ order.desired_production_date_end.strftime('%d.%m.%Y') }}</td>

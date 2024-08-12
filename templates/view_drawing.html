@@ -3,24 +3,33 @@
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Просмотр чертежа</title>
+        <title>Просмотр чертежей</title>
         <style>
-         body {
+         .drawing-container {
              display: flex;
+             flex-wrap: wrap;
              justify-content: center;
-             align-items: center;
-             height: 100vh;
-             margin: 0;
-             background-color: #f0f0f0;
+         }
+         .drawing-item {
+             margin: 10px;
+             text-align: center;
          }
          img {
-             max-width: 90%;
-             max-height: 90%;
+             max-width: 300px;
+             max-height: 300px;
              object-fit: contain;
          }
         </style>
     </head>
     <body>
-        <img src="{{ drawing_path }}" style="max-width: 100%; height: auto;">
+        <h1>Чертежи для заказа {{ order.order_number }}</h1>
+        <div class="drawing-container">
+            {% for path in drawing_paths %}
+            <div class="drawing-item">
+                <img src="{{ path }}" alt="Чертеж">
+                <p>{{ path.split('/')[-1] }}</p>
+            </div>
+            {% endfor %}
+        </div>
     </body>
 </html>

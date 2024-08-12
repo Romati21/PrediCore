@@ -79,12 +79,18 @@
             </div>
 
             <div>
-                <label for="drawing_file">Загрузите чертёж:</label>
-                <input type="file" id="drawing_file" name="drawing_file" {% if not order %}required{% endif %}>
-                {% if order and order.current_drawing %}
-                <p>Текущий чертеж: {{ order.current_drawing }}</p>
-                {% endif %}
+                <label for="drawing_file">Загрузите новый чертёж (необязательно):</label>
+                <input type="file" id="drawing_file" name="drawing_file">
             </div>
+
+            {% if drawing_paths %}
+            <div>
+                <h3>Существующие чертежи:</h3>
+                {% for path in drawing_paths %}
+                <img src="{{ path }}" alt="Чертеж" style="max-width: 200px; max-height: 200px;">
+                {% endfor %}
+            </div>
+            {% endif %}
 
             <div>
                 <input type="submit" value="{% if order %}Обновить{% else %}Создать{% endif %} заказ-наряд">

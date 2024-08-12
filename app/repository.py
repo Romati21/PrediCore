@@ -49,7 +49,7 @@ def create_production_order(
     desired_production_date_start: date,
     desired_production_date_end: date,
     required_material: str,
-    metal_delivery_date: str,  # Изменено на str
+    metal_delivery_date: str,
     notes: str
 ):
     db_order = models.ProductionOrder(
