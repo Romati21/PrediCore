@@ -1,35 +1,94 @@
 <!DOCTYPE html>
 <html lang="ru">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Просмотр чертежей</title>
-        <style>
-         .drawing-container {
-             display: flex;
-             flex-wrap: wrap;
-             justify-content: center;
-         }
-         .drawing-item {
-             margin: 10px;
-             text-align: center;
-         }
-         img {
-             max-width: 300px;
-             max-height: 300px;
-             object-fit: contain;
-         }
-        </style>
-    </head>
-    <body>
-        <h1>Чертежи для заказа {{ order.order_number }}</h1>
-        <div class="drawing-container">
-            {% for path in drawing_paths %}
-            <div class="drawing-item">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Просмотр чертежей</title>
+    <style>
+        .drawing-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .drawing-item {
+            margin: 10px;
+            text-align: center;
+        }
+        img {
+            max-width: 300px;
+            max-height: 300px;
+            object-fit: contain;
+            cursor: pointer;
+        }
+        .print-button {
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Чертежи для заказа {{ order.order_number }}</h1>
+    <div class="drawing-container">
+        {% for path in drawing_paths %}
+        <div class="drawing-item">
+            <a href="{{ path }}" target="_blank">
                 <img src="{{ path }}" alt="Чертеж">
-                <p>{{ path.split('/')[-1] }}</p>
-            </div>
-            {% endfor %}
+            </a>
+            <p>{{ path.split('/')[-1] }}</p>
+            <button class="print-button" onclick="printDrawing('{{ path }}')">Печать</button>
         </div>
-    </body>
+        {% endfor %}
+    </div>
+
+    <script>
+        function printDrawing(drawingPath) {
+            const printWindow = window.open('', '_blank');
+            printWindow.document.write(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Печать чертежа</title>
+                    <style>
+                        body {
+                            margin: 0;
+                            padding: 0;
+                            display: flex;
+                            justify-content: center;
+                            align-items: center;
+                            height: 100vh;
+                        }
+                        img {
+                            max-width: 100%;
+                            max-height: 100%;
+                            object-fit: contain;
+                        }
+                        @media print {
+                            @page {
+                                size: auto;
+                                margin: 0mm;
+                            }
+                            body {
+                                margin: 0;
+                            }
+                        }
+                    </style>
+                </head>
+                <body>
+                    <img src="${drawingPath}" alt="Чертеж для печати" id="print-content">
+                    <script>
+                        window.onload = function() {
+                            setTimeout(function() {
+                                window.print();
+                                window.onafterprint = function() {
+                                    window.close();
+                                };
+                            }, 1000);
+                        };
+                    <\/script>
+                </body>
+                </html>
+            `);
+            printWindow.document.close();
+        }
+    </script>
+</body>
 </html>

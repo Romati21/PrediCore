@@ -285,7 +285,8 @@ async def create_production_order(
                 if not os.path.exists(modified_drawings_dir):
                     os.makedirs(modified_drawings_dir)
 
-                modified_drawing_filename = f"{order.order_number}_{upload_date}.png"
+                timestamp = int(time.time()).to_bytes(4, byteorder='big').hex().upper()
+                modified_drawing_filename = f"{order.order_number}_{timestamp}.png"
                 modified_drawing_path = os.path.join(modified_drawings_dir, modified_drawing_filename)
                 img.save(modified_drawing_path, format='PNG')
 
@@ -431,8 +432,8 @@ async def update_production_order(
                 if not os.path.exists(modified_drawings_dir):
                     os.makedirs(modified_drawings_dir)
 
-                upload_date = datetime.now().strftime('%d.%m.%Y')
-                modified_drawing_filename = f"{order.order_number}_{upload_date}.png"
+                timestamp = int(time.time()).to_bytes(4, byteorder='big').hex().upper()
+                modified_drawing_filename = f"{order.order_number}_{timestamp}.png"
                 modified_drawing_path = os.path.join(modified_drawings_dir, modified_drawing_filename)
                 img.save(modified_drawing_path, format='PNG')
 
