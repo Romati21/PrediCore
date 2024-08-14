@@ -58,17 +58,17 @@ class FlexibleDate(TypeDecorator):
 class ProductionOrder(Base):
     __tablename__ = "production_orders"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    order_number: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
-    publication_date: Mapped[date] = mapped_column(Date, default=func.current_date(), nullable=False)
-    drawing_designation: Mapped[str] = mapped_column(String, nullable=False)
-    drawing_link: Mapped[str] = mapped_column(String, nullable=False)
-    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
-    desired_production_date_start: Mapped[date] = mapped_column(Date, nullable=False)
-    desired_production_date_end: Mapped[date] = mapped_column(Date, nullable=False)
-    required_material: Mapped[str] = mapped_column(String, nullable=False)
-    metal_delivery_date: Mapped[Optional[str]] = mapped_column(String)
-    notes: Mapped[Optional[str]] = mapped_column(String)
+    id = Column(Integer, primary_key=True, index=True)
+    order_number = Column(String, unique=True, index=True)
+    publication_date = Column(Date)
+    drawing_designation = Column(String)
+    drawing_link = Column(String, nullable=True)  # Разрешаем NULL значения
+    quantity = Column(Integer)
+    desired_production_date_start = Column(Date)
+    desired_production_date_end = Column(Date)
+    required_material = Column(String)
+    metal_delivery_date = Column(String)
+    notes = Column(String, nullable=True)
 
     def update_drawing_link(self, new_link: str):
         self.drawing_link = new_link

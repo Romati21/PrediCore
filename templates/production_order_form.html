@@ -1,48 +1,97 @@
 <!DOCTYPE html>
 <html lang="ru">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Заказ-наряд на производство оконцевателей</title>
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-        <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-        <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/ru.js"></script>
-        <style>
-         .button {
-             display: inline-block;
-             padding: 10px 20px;
-             background-color: #4CAF50;
-             color: white;
-             text-decoration: none;
-             border-radius: 5px;
-             transition: background-color 0.3s;
-         }
-         .button:hover {
-             background-color: #45a049;
-         }
-         form div {
-             margin-bottom: 15px;
-         }
-         label {
-             display: block;
-             margin-bottom: 5px;
-         }
-         input[type="text"], input[type="number"], textarea {
-             width: 100%;
-             padding: 5px;
-         }
-         input[type="submit"] {
-             padding: 10px 20px;
-             background-color: #4CAF50;
-             color: white;
-             border: none;
-             cursor: pointer;
-         }
-        </style>
-    </head>
-    <body>
-        <h1>Заказ-наряд на производство оконцевателей</h1>
-        <form action="{% if order %}{{ url_for('update_production_order', order_id=order.id) }}{% else %}{{ url_for('create_production_order') }}{% endif %}" method="post" enctype="multipart/form-data" id="orderForm">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% if order %}Редактирование{% else %}Создание{% endif %} заказа-наряда</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        input[type="text"], input[type="number"], textarea {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        input[type="file"] {
+            margin-bottom: 10px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .button {
+            display: inline-block;
+            background-color: #008CBA;
+            color: white;
+            padding: 10px 15px;
+            text-decoration: none;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+        .button:hover {
+            background-color: #007B9A;
+        }
+        .drawing-preview {
+            display: inline-block;
+            margin: 10px;
+            text-align: center;
+        }
+        .drawing-preview img {
+            max-width: 200px;
+            max-height: 200px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 5px;
+        }
+        .delete-drawing {
+            background-color: #f44336;
+            color: white;
+            padding: 5px 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 5px;
+        }
+        .delete-drawing:hover {
+            background-color: #d32f2f;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{% if order %}Редактирование{% else %}Создание{% endif %} заказа-наряда на производство оконцевателей</h1>
+
+        <form id="orderForm" method="POST" action="{{ url_for('create_production_order') }}" enctype="multipart/form-data">
             <div>
                 <label for="drawing_designation">Обозначение чертежа:</label>
                 <input type="text" id="drawing_designation" name="drawing_designation" value="{{ order.drawing_designation if order else '' }}" required>
@@ -80,106 +129,88 @@
 
             <div>
                 <label for="drawing_file">Загрузите чертёж(и):</label>
-                <input type="file" id="drawing_file" name="drawing_file" multiple>
+                <input type="file" id="drawing_file" name="drawing_file" multiple accept="image/*">
             </div>
 
-            <div id="uploadedDrawings">
-                {% if order and drawing_paths %}
+            <div id="drawingPreviews"></div>
+
+            {% if order and drawing_paths %}
+            <div id="existingDrawings">
                 <h3>Существующие чертежи:</h3>
                 {% for path in drawing_paths %}
-                <div class="drawing-item">
-                    <img src="{{ path if path.startswith('/static/') else '/static/' + path }}" alt="Чертеж" style="max-width: 200px; max-height: 200px;">
+                <div class="drawing-preview" data-path="{{ path }}">
+                    <img src="{{ path if path.startswith('/static/') else '/static/' + path }}" alt="Чертеж">
                     <br>
-                    <label>
-                        <input type="checkbox" name="delete_drawing" value="{{ path }}"> Удалить
-                    </label>
+                    {{ path.split('/')[-1] }}
+                    <br>
+                    <button type="button" class="delete-drawing" data-path="{{ path }}">Удалить</button>
                 </div>
                 {% endfor %}
-                {% endif %}
             </div>
+            {% endif %}
 
-            <div>
-                <input type="submit" value="{% if order %}Обновить{% else %}Создать{% endif %} заказ-наряд">
-            </div>
+            <input type="hidden" id="deletedDrawings" name="delete_drawing" value="">
+
+            <button type="submit">{% if order %}Обновить{% else %}Создать{% endif %} заказ-наряд</button>
         </form>
 
         {% if order %}
         <div>
-            <a href="{{ url_for('drawing_history', order_id=order.id) }}" target="_blank">
-                <button type="button">История чертежей</button>
-            </a>
+            <a href="{{ url_for('drawing_history', order_id=order.id) }}" class="button">История чертежей</a>
         </div>
         {% endif %}
 
-        <br>
-        <a href="/" class="button">Вернуться на главную страницу</a>
+        <a href="{{ url_for('read_root') }}" class="button">Вернуться на главную страницу</a>
+    </div>
 
-        <script>
-         flatpickr.localize(flatpickr.l10ns.ru);
-         flatpickr("#desired_production_date_start", {
-             dateFormat: "d.m.Y",
-             allowInput: true
-         });
-         flatpickr("#desired_production_date_end", {
-             dateFormat: "d.m.Y",
-             allowInput: true
-         });
-         /* flatpickr("#metal_delivery_date", {
-          *     dateFormat: "d.m.Y",
-          *     allowInput: true,
-          *     altInput: true,
-          *     altFormat: "d.m.Y",
-          *     allowInvalidPreload: true
-          * }); */
+    <script>
+        $(document).ready(function() {
+            let deletedDrawings = [];
 
-         function validateForm() {
-             var start = document.getElementById("desired_production_date_start").value;
-             var end = document.getElementById("desired_production_date_end").value;
+            $('#drawing_file').change(function(e) {
+                let files = e.target.files;
+                for (let i = 0; i < files.length; i++) {
+                    let file = files[i];
+                    let reader = new FileReader();
+                    reader.onload = function(e) {
+                        let preview = $('<div class="drawing-preview">')
+                            .append($('<img>').attr('src', e.target.result))
+                            .append($('<br>'))
+                            .append(file.name)
+                            .append($('<br>'))
+                            .append($('<button type="button" class="delete-drawing">').text('Удалить').data('file', file.name));
+                        $('#drawingPreviews').append(preview);
+                    }
+                    reader.readAsDataURL(file);
+                }
+            });
 
-             // Преобразуем строки в объекты Date
-             var startDate = parseDate(start);
-             var endDate = parseDate(end);
+            $(document).on('click', '.delete-drawing', function() {
+                let path = $(this).data('path');
+                let fileName = $(this).data('file');
+                if (path) {
+                    deletedDrawings.push(path);
+                    $('#deletedDrawings').val(deletedDrawings.join(','));
+                }
+                $(this).closest('.drawing-preview').remove();
 
-             if (startDate > endDate) {
-                 alert("Дата начала производства не может быть позже даты окончания");
-                 return false;
-             }
-             return true;
-         }
+                // Удаление файла из input file
+                let drawingFileInput = $('#drawing_file')[0];
+                let newFileList = Array.from(drawingFileInput.files).filter(file => file.name !== fileName);
+                drawingFileInput.files = new FileListItems(newFileList);
+            });
 
-         function parseDate(dateString) {
-             var parts = dateString.split(".");
-             return new Date(parts[2], parts[1] - 1, parts[0]);
-         }
-        </script>
+            $('#orderForm').submit(function() {
+                $('#deletedDrawings').val(deletedDrawings.join(','));
+            });
+        });
 
-        <script>
-         document.getElementById('drawing_file').addEventListener('change', function(event) {
-             var files = event.target.files;
-             var uploadedDrawings = document.getElementById('uploadedDrawings');
-
-             for (var i = 0; i < files.length; i++) {
-                 var file = files[i];
-                 var reader = new FileReader();
-
-                 reader.onload = (function(file) {
-                     return function(e) {
-                         var div = document.createElement('div');
-                         div.className = 'drawing-item';
-                         div.innerHTML = `
-                             <img src="${e.target.result}" alt="Чертеж" style="max-width: 200px; max-height: 200px;">
-    <br>
-    <label>
-         <input type="checkbox" name="delete_drawing" value="{{ path }}"> Удалить
-    </label>
-`;
-                uploadedDrawings.appendChild(div);
-            };
-        })(file);
-
-        reader.readAsDataURL(file);
-    }
-});
-</script>
-    </body>
+        // Вспомогательный класс для создания нового FileList
+        function FileListItems(files) {
+            var b = new ClipboardEvent("").clipboardData || new DataTransfer();
+            for (var i = 0, len = files.length; i < len; i++) b.items.add(files[i]);
+            return b.files;
+        }
+    </script>
+</body>
 </html>
