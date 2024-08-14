@@ -30,11 +30,8 @@
     <div class="drawing-container">
         {% for path in drawing_paths %}
         <div class="drawing-item">
-            <a href="{{ path }}" target="_blank">
-                <img src="{{ path }}" alt="Чертеж">
-            </a>
-            <p>{{ path.split('/')[-1] }}</p>
-            <button class="print-button" onclick="printDrawing('{{ path }}')">Печать</button>
+            <img src="{{ url_for('static', path=path) }}" alt="Чертеж">
+            <p>{{ path }}</p>
         </div>
         {% endfor %}
     </div>

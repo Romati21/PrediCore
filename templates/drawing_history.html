@@ -1,47 +1,35 @@
 <!DOCTYPE html>
 <html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>История чертежей - Заказ {{ order.order_number }}</title>
-    <style>
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        th, td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-        }
-        th {
-            background-color: #f2f2f2;
-        }
-        img {
-            max-width: 200px;
-            max-height: 200px;
-        }
-    </style>
-</head>
-<body>
-    <h1>История чертежей - Заказ {{ order.order_number }}</h1>
-    <table>
-        <thead>
-            <tr>
-                <th>Предпросмотр</th>
-                <th>Имя файла</th>
-                <th>Дата создания</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for drawing in archived_drawings %}
-            <tr>
-                <td><img src="{{ drawing.path }}" alt="{{ drawing.filename }}"></td>
-                <td><a href="{{ drawing.path }}" target="_blank">{{ drawing.filename }}</a></td>
-                <td>{{ drawing.created_at }}</td>
-            </tr>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>История чертежей</title>
+        <style>
+         .drawing-container {
+             display: flex;
+             flex-wrap: wrap;
+             justify-content: center;
+         }
+         .drawing-item {
+             margin: 10px;
+             text-align: center;
+         }
+         img {
+             max-width: 300px;
+             max-height: 300px;
+             object-fit: contain;
+         }
+        </style>
+    </head>
+    <body>
+        <h1>История чертежей для заказа {{ order.order_number }}</h1>
+        <div class="drawing-container">
+            {% for path in drawing_paths %}
+            <div class="drawing-item">
+                <img src="{{ url_for('static', path=path) }}" alt="Чертеж">
+                <p>{{ path }}</p>
+            </div>
             {% endfor %}
-        </tbody>
-    </table>
-</body>
+        </div>
+    </body>
 </html>
