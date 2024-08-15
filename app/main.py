@@ -39,6 +39,9 @@ DIRECTORIES_TO_CREATE = [
 for directory in DIRECTORIES_TO_CREATE:
     os.makedirs(directory, exist_ok=True)
 
+def generate_timestamp():
+    return f"{int(time.time()):08X}"
+
 class Order(BaseModel):
     order_number: str
     customer_name: str
@@ -198,7 +201,7 @@ async def create_production_order(
             notes=notes,
             publication_date=datetime.now().date()
         )
-
+        
         logger.info(f"Создан новый заказ: {order.order_number}")
 
         processed_drawings = []
@@ -207,7 +210,8 @@ async def create_production_order(
         for file in drawing_file:
             if file.filename and file.filename not in delete_drawing_list:
                 # Генерируем уникальное имя файла
-                temp_filename = f"drawing_{order.order_number}_{int(time.time())}_{file.filename}"
+                timestamp = generate_timestamp()
+                temp_filename = f"drawing_{order.order_number}_{timestamp}_{file.filename}"
                 temp_filepath = os.path.join(TEMP_DIR, temp_filename)
 
                 # Сохраняем файл
@@ -222,7 +226,7 @@ async def create_production_order(
 
                         # Генерация QR-кода и добавление на чертеж
                         processed_filepath = process_drawing(standardized_drawing_path, order)
-
+                        
                         if processed_filepath:
                             processed_drawings.append(processed_filepath)
                         else:
@@ -238,14 +242,13 @@ async def create_production_order(
                     os.remove(temp_filepath)
 
         if processed_drawings:
-            order.drawing_link = ','.join([path if path.startswith('/static/') else f"/static/{path}" for path in processed_drawings])
+            order.drawing_link = ','.join(processed_drawings)
         else:
             logger.warning(f"Не удалось обработать ни один чертеж для заказа {order.order_number}")
             order.drawing_link = ''
 
         db.add(order)
         db.commit()
-        db.refresh(order)
         logger.info(f"Заказ успешно сохранен в базе данных: {order.id}")
 
         return RedirectResponse(url="/production_orders", status_code=303)
@@ -299,7 +302,7 @@ async def update_production_order(
 
         logger.info(f"Текущие чертежи после обработки: {current_drawings}")
         logger.info(f"Чертежи для удаления после обработки: {delete_drawing_list}")
-
+        
         for drawing in delete_drawing_list:
             if drawing in current_drawings:
                 current_drawings.remove(drawing)
@@ -317,7 +320,8 @@ async def update_production_order(
             if file.filename:
                 logger.info(f"Обработка нового чертежа: {file.filename}")
                 # Генерируем уникальное имя файла
-                temp_filename = f"drawing_{order.order_number}_{int(time.time())}_{file.filename}"
+                timestamp = generate_timestamp()
+                temp_filename = f"drawing_{order.order_number}_{timestamp}_{file.filename}"
                 temp_filepath = os.path.join(TEMP_DIR, temp_filename)
 
                 # Сохраняем файл
@@ -387,7 +391,7 @@ async def production_order_form(request: Request):
 def process_drawing(drawing_path: str, order: models.ProductionOrder) -> str:
     try:
         logger.info(f"Начало обработки чертежа: {drawing_path}")
-        
+
         # Проверяем существование файла
         if not os.path.exists(drawing_path):
             logger.error(f"Файл не найден: {drawing_path}")
@@ -395,7 +399,7 @@ def process_drawing(drawing_path: str, order: models.ProductionOrder) -> str:
 
         with Image.open(drawing_path).convert('RGBA') as img:
             logger.info(f"Изображение открыто успешно. Размер: {img.size}")
-            
+
             # Генерация QR-кода
             qr_code_data = f"Заказ-наряд №: {order.order_number}\n" \
                            f"Дата публикации: {order.publication_date.strftime('%d.%m.%Y')}\n" \
@@ -409,7 +413,7 @@ def process_drawing(drawing_path: str, order: models.ProductionOrder) -> str:
 
             qr_code_img = generate_qr_code_with_text(qr_code_data, order.order_number)
             logger.info("QR-код сгенерирован")
-            
+
             qr_code = Image.open(io.BytesIO(base64.b64decode(qr_code_img.split(',')[1])))
             logger.info("QR-код изображение создано")
 
@@ -448,11 +452,11 @@ def process_drawing(drawing_path: str, order: models.ProductionOrder) -> str:
             # Добавляем дату загрузки
             draw = ImageDraw.Draw(img)
             upload_date = datetime.now().strftime('%d.%m.%Y')
-            
+
             # Используем TrueType шрифт
             BASE_DIR = Path(__file__).resolve().parent
             FONT_PATH = BASE_DIR / "static" / "fonts" / "CommitMonoNerdFont-Bold.otf"
-            font_size = 36
+            font_size = 56
             font = ImageFont.truetype(str(FONT_PATH), font_size)
             logger.info(f"Шрифт загружен: {FONT_PATH}")
 
@@ -462,8 +466,8 @@ def process_drawing(drawing_path: str, order: models.ProductionOrder) -> str:
 
             # Рисуем текст с тенью для лучшей читаемости
             shadow_color = (200, 200, 200)  # Светло-серый цвет для тени
-            draw.text((date_position[0]+1, date_position[1]+1), f"Загружено: {upload_date}", font=font, fill=shadow_color)
-            draw.text(date_position, f"Загружено: {upload_date}", font=font, fill=(0, 0, 0))
+            draw.text((date_position[0]+1, date_position[1]+1), f"{upload_date}", font=font, fill=shadow_color)
+            draw.text(date_position, f"{upload_date}", font=font, fill=(0, 0, 0))
             logger.info("Дата добавлена на изображение")
 
             # Сохранение обработанного чертежа
