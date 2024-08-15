@@ -100,46 +100,48 @@
 </head>
 <body>
     <h1>Список заказ-нарядов на производство</h1>
-    <table border="1">
-        <tr>
-            <th>Номер заказа</th>
-            <th>Дата публикации</th>
-            <th>Обозначение чертежа</th>
-            <th>Количество</th>
-            <th>Желательная дата изготовления</th>
-            <th>Необходимый материал</th>
-            <th>Срок поставки металла</th>
-            <th>Примечания</th> <th-- Добавили новый столбец -->
-        </tr>
-        {% for order in orders %}
-        <tr>
-            <td><a href="/edit_production_order/{{ order.id }}">{{ order.order_number }}</a></td>
-            <td>
-                {% if order.publication_date %}
-                {{ order.publication_date.strftime('%d.%m.%Y') }}
-                {% endif %}
-            </td>
-            <!-- <td><a href="#" onclick="openDrawingSelector('{{ order.drawing_link }}', '{{ order.order_number }}')">{{ order.drawing_designation }}</a></td> -->
-            <td><a href="{{ url_for('view_drawing', order_id=order.id) }}" target="_blank">{{ order.drawing_designation }}</a></td>
-            <!-- <td><a href="{{ order.drawing_link }}" target="_blank">{{ order.drawing_designation }}</a></td> -->
-            <td>{{ order.quantity }}</td>
-            <td>{{ order.desired_production_date_start.strftime('%d.%m.%Y') }} - {{ order.desired_production_date_end.strftime('%d.%m.%Y') }}</td>
-            <td>{{ order.required_material }}</td>
-            <td>
-                {% if order.metal_delivery_date.__class__.__name__ == 'date' %}
-                    {{ order.metal_delivery_date.strftime('%d.%m.%Y') }}
-                {% else %}
-                    {{ order.metal_delivery_date }}
-                {% endif %}
-            </td>
-            <td>{{ order.notes }}</td> <th-- Добавили ячейку для примечаний -->
-            <td><a href="/print_order/{{ order.id }}" target="_blank">Печать</a></td>
-        </tr>
-        {% endfor %}
-    </table>
+    {% if orders %}
+        <table border="1">
+            <tr>
+                <th>Номер заказа</th>
+                <th>Дата публикации</th>
+                <th>Обозначение чертежа</th>
+                <th>Количество</th>
+                <th>Желательная дата изготовления</th>
+                <th>Необходимый материал</th>
+                <th>Срок поставки металла</th>
+                <th>Примечания</th>
+                <th>Действия</th>
+            </tr>
+            {% for order in orders %}
+            <tr>
+                <td><a href="{{ url_for('edit_production_order', order_id=order.id) }}">{{ order.order_number }}</a></td>
+                <td>
+                    {% if order.publication_date %}
+                    {{ order.publication_date.strftime('%d.%m.%Y') }}
+                    {% endif %}
+                </td>
+                <td><a href="{{ url_for('view_drawing', order_id=order.id) }}" target="_blank">{{ order.drawing_designation }}</a></td>
+                <td>{{ order.quantity }}</td>
+                <td>{{ order.desired_production_date_start.strftime('%d.%m.%Y') }} - {{ order.desired_production_date_end.strftime('%d.%m.%Y') }}</td>
+                <td>{{ order.required_material }}</td>
+                <td>
+                    {% if order.metal_delivery_date.__class__.__name__ == 'date' %}
+                        {{ order.metal_delivery_date.strftime('%d.%m.%Y') }}
+                    {% else %}
+                        {{ order.metal_delivery_date }}
+                    {% endif %}
+                </td>
+                <td>{{ order.notes }}</td>
+                <td><a href="{{ url_for('print_order', order_id=order.id) }}" target="_blank">Печать</a></td>
+            </tr>
+            {% endfor %}
+        </table>
+    {% else %}
+        <p>Нет доступных заказ-нарядов.</p>
+    {% endif %}
     <br>
     <a href="{{ url_for('production_order_form') }}" class="button">Создать новый заказ</a>
-
     <br>
     <a href="/" class="button">Вернуться на главную страницу</a>
 </body>

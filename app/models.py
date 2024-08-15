@@ -5,6 +5,9 @@ from datetime import date, datetime
 from sqlalchemy.sql import func
 from typing import Optional
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.ext.declarative import declarative_base
+
+Base = declarative_base()
 
 class Inventory(Base):
     __tablename__ = "inventory"
@@ -55,6 +58,7 @@ class FlexibleDate(TypeDecorator):
 #     metal_delivery_date = Column(String) 
 #     notes = Column(String)
 
+
 class ProductionOrder(Base):
     __tablename__ = "production_orders"
 
@@ -62,7 +66,7 @@ class ProductionOrder(Base):
     order_number = Column(String, unique=True, index=True)
     publication_date = Column(Date)
     drawing_designation = Column(String)
-    drawing_link = Column(String, nullable=True)  # Разрешаем NULL значения
+    drawing_link = Column(String, nullable=True)  # Убедитесь, что здесь стоит nullable=True
     quantity = Column(Integer)
     desired_production_date_start = Column(Date)
     desired_production_date_end = Column(Date)
@@ -70,5 +74,5 @@ class ProductionOrder(Base):
     metal_delivery_date = Column(String)
     notes = Column(String, nullable=True)
 
-    def update_drawing_link(self, new_link: str):
-        self.drawing_link = new_link
+    # def update_drawing_link(self, new_link: str):
+    #     self.drawing_link = new_link

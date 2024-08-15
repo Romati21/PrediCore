@@ -144,10 +144,9 @@ async def print_order(request: Request, order_id: int, db: Session = Depends(get
 
 @app.get("/production_orders", response_class=HTMLResponse)
 async def show_production_orders(request: Request, db: Session = Depends(get_db)):
-    orders = repository.get_production_orders(db)
-    # Сортируем заказы по дате публикации (от новых к старым)
-    sorted_orders = sorted(orders, key=lambda x: x.publication_date or datetime.min, reverse=False)
-    return templates.TemplateResponse("production_orders.html", {"request": request, "orders": sorted_orders})
+    orders = db.query(models.ProductionOrder).order_by(models.ProductionOrder.publication_date.desc()).all()
+    logger.info(f"Получено {len(orders)} заказов из базы данных")
+    return templates.TemplateResponse("production_orders.html", {"request": request, "orders": orders})
 
 def generate_order_number(drawing_designation, db):
     # Извлекаем первые две цифры из drawing_designation
@@ -188,16 +187,19 @@ async def create_production_order(
 ):
     try:
         # Создание нового заказа
-        order = models.ProductionOrder()
-        order.order_number = generate_order_number(drawing_designation, db)
-        order.drawing_designation = drawing_designation
-        order.quantity = quantity
-        order.desired_production_date_start = datetime.strptime(desired_production_date_start, "%d.%m.%Y").date()
-        order.desired_production_date_end = datetime.strptime(desired_production_date_end, "%d.%m.%Y").date()
-        order.required_material = required_material
-        order.metal_delivery_date = metal_delivery_date
-        order.notes = notes
-        order.publication_date = datetime.now().date()
+        order = models.ProductionOrder(
+            order_number=generate_order_number(drawing_designation, db),
+            drawing_designation=drawing_designation,
+            quantity=quantity,
+            desired_production_date_start=datetime.strptime(desired_production_date_start, "%d.%m.%Y").date(),
+            desired_production_date_end=datetime.strptime(desired_production_date_end, "%d.%m.%Y").date(),
+            required_material=required_material,
+            metal_delivery_date=metal_delivery_date,
+            notes=notes,
+            publication_date=datetime.now().date()
+        )
+
+        logger.info(f"Создан новый заказ: {order.order_number}")
 
         processed_drawings = []
         delete_drawing_list = delete_drawing.split(',') if delete_drawing else []
@@ -220,7 +222,7 @@ async def create_production_order(
 
                         # Генерация QR-кода и добавление на чертеж
                         processed_filepath = process_drawing(standardized_drawing_path, order)
-                        
+
                         if processed_filepath:
                             processed_drawings.append(processed_filepath)
                         else:
@@ -239,15 +241,19 @@ async def create_production_order(
             order.drawing_link = ','.join([path if path.startswith('/static/') else f"/static/{path}" for path in processed_drawings])
         else:
             logger.warning(f"Не удалось обработать ни один чертеж для заказа {order.order_number}")
+            order.drawing_link = ''
 
         db.add(order)
         db.commit()
+        db.refresh(order)
+        logger.info(f"Заказ успешно сохранен в базе данных: {order.id}")
 
         return RedirectResponse(url="/production_orders", status_code=303)
 
     except Exception as e:
         logger.error(f"Ошибка при создании заказа: {str(e)}")
-        raise HTTPException(status_code=500, detail="Ошибка при создании заказа")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Ошибка при создании заказа: {str(e)}")
 
 @app.post("/edit_production_order/{order_id}")
 async def update_production_order(
@@ -342,14 +348,19 @@ async def update_production_order(
 async def production_order_form(request: Request):
     return templates.TemplateResponse("production_order_form.html", {"request": request})
 
-@app.get("/production_orders", response_class=HTMLResponse)
-async def show_production_orders(request: Request, db: Session = Depends(get_db)):
-    orders = repository.get_production_orders(db)
-    return templates.TemplateResponse("production_orders.html", {"request": request, "orders": orders})
 
 def process_drawing(drawing_path: str, order: models.ProductionOrder) -> str:
     try:
+        logger.info(f"Начало обработки чертежа: {drawing_path}")
+        
+        # Проверяем существование файла
+        if not os.path.exists(drawing_path):
+            logger.error(f"Файл не найден: {drawing_path}")
+            return None
+
         with Image.open(drawing_path).convert('RGBA') as img:
+            logger.info(f"Изображение открыто успешно. Размер: {img.size}")
+            
             # Генерация QR-кода
             qr_code_data = f"Заказ-наряд №: {order.order_number}\n" \
                            f"Дата публикации: {order.publication_date.strftime('%d.%m.%Y')}\n" \
@@ -359,12 +370,17 @@ def process_drawing(drawing_path: str, order: models.ProductionOrder) -> str:
                            f"Необходимый материал: {order.required_material}\n" \
                            f"Срок поставки металла: {order.metal_delivery_date}\n" \
                            f"Примечания: {order.notes}"
+            logger.info("QR-код данные подготовлены")
 
             qr_code_img = generate_qr_code_with_text(qr_code_data, order.order_number)
+            logger.info("QR-код сгенерирован")
+            
             qr_code = Image.open(io.BytesIO(base64.b64decode(qr_code_img.split(',')[1])))
+            logger.info("QR-код изображение создано")
 
             # Определяем ориентацию чертежа
             is_landscape = img.width > img.height
+            logger.info(f"Ориентация чертежа: {'альбомная' if is_landscape else 'портретная'}")
 
             # Вычисляем размер QR-кода
             if is_landscape:
@@ -373,21 +389,26 @@ def process_drawing(drawing_path: str, order: models.ProductionOrder) -> str:
             else:
                 qr_size_ratio = 0.2  # 20% от ширины изображения для портретной ориентации
                 qr_size_px = int(img.width * qr_size_ratio)
+            logger.info(f"Размер QR-кода: {qr_size_px}x{qr_size_px} пикселей")
 
             # Создаем новое изображение с белым фоном для QR-кода
             qr_background = Image.new('RGBA', (qr_size_px, qr_size_px), (255, 255, 255, 255))
             qr_code = qr_code.resize((qr_size_px, qr_size_px), Image.LANCZOS).convert('RGBA')
+            logger.info("QR-код подготовлен для вставки")
 
             # Наложение QR-кода на белый фон
             qr_background.alpha_composite(qr_code)
+            logger.info("QR-код наложен на белый фон")
 
             # Вычисляем позицию для QR-кода (правый нижний угол с отступом)
             offset_ratio = 0.015  # 1.5% от размера изображения
             offset_px = int(img.width * offset_ratio)
             qr_position = (img.width - qr_size_px - offset_px, img.height - qr_size_px - offset_px)
+            logger.info(f"Позиция QR-кода: {qr_position}")
 
             # Вставляем QR-код
             img.alpha_composite(qr_background, qr_position)
+            logger.info("QR-код вставлен в изображение")
 
             # Добавляем дату загрузки
             draw = ImageDraw.Draw(img)
@@ -398,24 +419,34 @@ def process_drawing(drawing_path: str, order: models.ProductionOrder) -> str:
             FONT_PATH = BASE_DIR / "static" / "fonts" / "CommitMonoNerdFont-Bold.otf"
             font_size = 36
             font = ImageFont.truetype(str(FONT_PATH), font_size)
+            logger.info(f"Шрифт загружен: {FONT_PATH}")
 
             # Вычисляем позицию для даты (левый нижний угол с отступом)
             date_position = (offset_px, img.height - offset_px - font_size)
+            logger.info(f"Позиция даты: {date_position}")
 
             # Рисуем текст с тенью для лучшей читаемости
             shadow_color = (200, 200, 200)  # Светло-серый цвет для тени
             draw.text((date_position[0]+1, date_position[1]+1), f"Загружено: {upload_date}", font=font, fill=shadow_color)
             draw.text(date_position, f"Загружено: {upload_date}", font=font, fill=(0, 0, 0))
+            logger.info("Дата добавлена на изображение")
 
             # Сохранение обработанного чертежа
             processed_filename = f"{order.order_number}_{int(time.time())}.png"
             processed_filepath = os.path.join(MODIFIED_DRAWINGS_DIR, processed_filename)
             img.save(processed_filepath, format='PNG')
+            logger.info(f"Обработанный чертеж сохранен: {processed_filepath}")
 
-            return processed_filepath
+            # Проверяем, что файл действительно сохранился
+            if os.path.exists(processed_filepath):
+                logger.info(f"Файл успешно сохранен: {processed_filepath}")
+                return processed_filepath
+            else:
+                logger.error(f"Не удалось сохранить файл: {processed_filepath}")
+                return None
 
     except Exception as e:
-        logger.error(f"Ошибка при обработке чертежа: {str(e)}")
+        logger.error(f"Ошибка при обработке чертежа: {str(e)}", exc_info=True)
         return None
 
 @app.get("/print_drawing/{filename}", response_class=HTMLResponse)
