@@ -1,35 +1,38 @@
 <!DOCTYPE html>
 <html lang="ru">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>История чертежей</title>
-        <style>
-         .drawing-container {
-             display: flex;
-             flex-wrap: wrap;
-             justify-content: center;
-         }
-         .drawing-item {
-             margin: 10px;
-             text-align: center;
-         }
-         img {
-             max-width: 300px;
-             max-height: 300px;
-             object-fit: contain;
-         }
-        </style>
-    </head>
-    <body>
-        <h1>История чертежей для заказа {{ order.order_number }}</h1>
-        <div class="drawing-container">
-            {% for path in drawing_paths %}
-            <div class="drawing-item">
-                <img src="{{ url_for('static', path=path) }}" alt="Чертеж">
-                <p>{{ path }}</p>
-            </div>
-            {% endfor %}
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>История чертежей для заказа {{ order.order_number }}</title>
+    <style>
+        .drawing-container { display: flex; flex-wrap: wrap; }
+        .drawing-item { margin: 10px; text-align: center; }
+        .drawing-item img { max-width: 200px; max-height: 200px; }
+    </style>
+</head>
+<body>
+    <h1>История чертежей для заказа {{ order.order_number }}</h1>
+
+    <h2>Текущие чертежи:</h2>
+    <div class="drawing-container">
+    {% for path in current_drawings %}
+        <div class="drawing-item">
+            <img src="{{ url_for('static', path=path) }}" alt="Чертеж">
+            <p>{{ path.split('/')[-1] }}</p>
         </div>
-    </body>
+    {% endfor %}
+    </div>
+
+    <h2>Архивированные чертежи:</h2>
+    <div class="drawing-container">
+    {% for path in archived_drawings %}
+        <div class="drawing-item">
+            <img src="{{ url_for('static', path=path) }}" alt="Архивированный чертеж">
+            <p>{{ path.split('/')[-1] }}</p>
+        </div>
+    {% endfor %}
+    </div>
+
+    <a href="{{ url_for('edit_production_order', order_id=order.id) }}">Вернуться к редактированию заказа</a>
+</body>
 </html>

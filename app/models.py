@@ -66,7 +66,8 @@ class ProductionOrder(Base):
     order_number = Column(String, unique=True, index=True)
     publication_date = Column(Date)
     drawing_designation = Column(String)
-    drawing_link = Column(String, nullable=True)  # Убедитесь, что здесь стоит nullable=True
+    drawing_link = Column(String, nullable=True)
+    archived_drawings = Column(String, nullable=True)  # Новое поле для архивированных чертежей
     quantity = Column(Integer)
     desired_production_date_start = Column(Date)
     desired_production_date_end = Column(Date)

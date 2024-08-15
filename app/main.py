@@ -271,6 +271,8 @@ async def update_production_order(
     db: Session = Depends(get_db)
 ):
     try:
+        logger.info(f"Начало обновления заказа {order_id}")
+        
         order = db.query(models.ProductionOrder).filter(models.ProductionOrder.id == order_id).first()
         if not order:
             raise HTTPException(status_code=404, detail="Заказ не найден")
@@ -284,27 +286,36 @@ async def update_production_order(
         order.metal_delivery_date = metal_delivery_date
         order.notes = notes
 
+        logger.info(f"Текущие чертежи заказа: {order.drawing_link}")
+        logger.info(f"Чертежи для удаления: {delete_drawing}")
+
+        # Обработка удаления и архивации чертежей
         current_drawings = order.drawing_link.split(',') if order.drawing_link else []
-        current_drawings = [path.replace('static/', '').lstrip('/') for path in current_drawings]
-        processed_drawings = []
-
+        current_drawings = [path.lstrip('/').replace('static/', '') for path in current_drawings]
         delete_drawing_list = delete_drawing.split(',') if delete_drawing else []
+        delete_drawing_list = [path.lstrip('/').replace('static/', '') for path in delete_drawing_list]
+        archived_drawings = order.archived_drawings.split(',') if order.archived_drawings else []
+        archived_drawings = [path.lstrip('/').replace('static/', '') for path in archived_drawings]
 
-        # Архивируем удаляемые чертежи
-        for drawing in current_drawings[:]:
-            if drawing in delete_drawing_list or drawing.lstrip('/') in [d.lstrip('/') for d in delete_drawing_list]:
-                archived_path = archive_old_drawing(drawing)
+        logger.info(f"Текущие чертежи после обработки: {current_drawings}")
+        logger.info(f"Чертежи для удаления после обработки: {delete_drawing_list}")
+
+        for drawing in delete_drawing_list:
+            if drawing in current_drawings:
+                current_drawings.remove(drawing)
+                logger.info(f"Удаление чертежа: {drawing}")
+                # Архивация удаленного чертежа
+                archived_path = archive_drawing(drawing, order.order_number)
                 if archived_path:
+                    archived_drawings.append(archived_path)
                     logger.info(f"Чертеж архивирован: {archived_path}")
-                    current_drawings.remove(drawing)
                 else:
                     logger.error(f"Не удалось архивировать чертеж: {drawing}")
 
-        processed_drawings = current_drawings  # Оставшиеся чертежи
-
-        # Обрабатываем новые чертежи
+        # Обработка новых чертежей
         for file in drawing_file:
             if file.filename:
+                logger.info(f"Обработка нового чертежа: {file.filename}")
                 # Генерируем уникальное имя файла
                 temp_filename = f"drawing_{order.order_number}_{int(time.time())}_{file.filename}"
                 temp_filepath = os.path.join(TEMP_DIR, temp_filename)
@@ -313,36 +324,60 @@ async def update_production_order(
                 with open(temp_filepath, "wb") as buffer:
                     shutil.copyfileobj(file.file, buffer)
 
-                # Проверяем, что файл существует и не пустой
-                if os.path.exists(temp_filepath) and os.path.getsize(temp_filepath) > 0:
-                    try:
-                        standardized_drawing_path, original_size, new_size = standardize_image(temp_filepath)
-
-                        # Генерация QR-кода и добавление на чертеж
-                        processed_filepath = process_drawing(standardized_drawing_path, order)
-
-                        if processed_filepath:
-                            processed_drawings.append(processed_filepath)
-                    except Exception as e:
-                        logger.error(f"Ошибка при обработке файла {file.filename}: {str(e)}")
-                else:
-                    logger.error(f"Файл не был сохранен или пустой: {temp_filepath}")
+                # Обработка чертежа (стандартизация, добавление QR-кода и т.д.)
+                try:
+                    standardized_drawing_path, _, _ = standardize_image(temp_filepath)
+                    processed_filepath = process_drawing(standardized_drawing_path, order)
+                    if processed_filepath:
+                        current_drawings.append(processed_filepath)
+                        logger.info(f"Новый чертеж обработан и добавлен: {processed_filepath}")
+                except Exception as e:
+                    logger.error(f"Ошибка при обработке файла {file.filename}: {str(e)}")
 
                 # Удаление временного файла
                 if os.path.exists(temp_filepath):
                     os.remove(temp_filepath)
 
-        # Обновляем ссылки на чертежи в заказе
-        order.drawing_link = ','.join([path if path.startswith('/static/') else f"/static/{path}" for path in processed_drawings])
+        # Обновляем ссылки на чертежи
+        order.drawing_link = ','.join(current_drawings)
+        order.archived_drawings = ','.join(archived_drawings)
 
-        # Сохраняем изменения в базе данных
+        logger.info(f"Обновленные чертежи заказа: {order.drawing_link}")
+        logger.info(f"Архивированные чертежи заказа: {order.archived_drawings}")
+
+        # Сохраняем изменения
         db.commit()
+        logger.info(f"Заказ успешно обновлен: {order.id}")
 
         return RedirectResponse(url="/production_orders", status_code=303)
 
     except Exception as e:
         logger.error(f"Ошибка при обновлении заказа: {str(e)}")
-        raise HTTPException(status_code=500, detail="Ошибка при обновлении заказа")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Ошибка при обновлении заказа: {str(e)}")
+
+def archive_drawing(drawing_path: str, order_number: str) -> str:
+    try:
+        logger.info(f"Попытка архивации чертежа: {drawing_path}")
+
+        source_path = os.path.join(STATIC_DIR, drawing_path)
+        if not os.path.exists(source_path):
+            logger.error(f"Исходный файл не найден: {source_path}")
+            return None
+
+        # Создаем имя для архивного файла
+        archive_filename = f"archived_{order_number}_{os.path.basename(drawing_path)}"
+        archive_path = os.path.join(ARCHIVED_DRAWINGS_DIR, archive_filename)
+
+        # Перемещаем файл в архивную директорию
+        shutil.move(source_path, archive_path)
+        logger.info(f"Чертеж успешно перемещен в архив: {archive_path}")
+
+        return os.path.join('archived_drawings', archive_filename)
+    except Exception as e:
+        logger.error(f"Ошибка при архивации чертежа: {str(e)}")
+        return None
+
 
 @app.get("/production_order_form", response_class=HTMLResponse)
 async def production_order_form(request: Request):
@@ -563,7 +598,7 @@ async def view_drawing(request: Request, order_id: int, db: Session = Depends(ge
         raise HTTPException(status_code=404, detail="Заказ не найден")
 
     drawing_paths = order.drawing_link.split(',') if order.drawing_link else []
-    drawing_paths = [path.replace('static/', '').lstrip('/') for path in drawing_paths]
+    drawing_paths = [path.lstrip('/').replace('static/', '') for path in drawing_paths]
 
     logger.info(f"Пути к чертежам для заказа {order_id}: {drawing_paths}")
 
@@ -774,17 +809,20 @@ async def drawing_history(request: Request, order_id: int, db: Session = Depends
     current_drawings = order.drawing_link.split(',') if order.drawing_link else []
     current_drawings = [path.replace('static/', '').lstrip('/') for path in current_drawings]
 
-    archived_drawings_dir = os.path.join(STATIC_DIR, "archived_drawings")
-    archived_drawings = [f"archived_drawings/{f}" for f in os.listdir(archived_drawings_dir) if f.startswith(f"archived_{order.order_number}")]
+    archived_drawings = order.archived_drawings.split(',') if order.archived_drawings else []
+    archived_drawings = [path.replace('static/', '').lstrip('/') for path in archived_drawings]
 
     all_drawings = current_drawings + archived_drawings
 
+    logger.info(f"Текущие чертежи для заказа {order_id}: {current_drawings}")
+    logger.info(f"Архивированные чертежи для заказа {order_id}: {archived_drawings}")
     logger.info(f"Все чертежи для заказа {order_id}: {all_drawings}")
 
     return templates.TemplateResponse("drawing_history.html", {
         "request": request,
         "order": order,
-        "drawing_paths": all_drawings
+        "current_drawings": current_drawings,
+        "archived_drawings": archived_drawings
     })
 
 
