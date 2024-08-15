@@ -381,7 +381,7 @@ def archive_drawing(drawing_path: str, order_number: str) -> str:
 
 @app.get("/production_order_form", response_class=HTMLResponse)
 async def production_order_form(request: Request):
-    return templates.TemplateResponse("production_order_form.html", {"request": request})
+    return templates.TemplateResponse("production_order_form.html", {"request": request, "order": None})
 
 
 def process_drawing(drawing_path: str, order: models.ProductionOrder) -> str:

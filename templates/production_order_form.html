@@ -1,55 +1,55 @@
 <!DOCTYPE html>
 <html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% if order %}Редактирование{% else %}Создание{% endif %} заказа-наряда</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
-    <style>
-        body {
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{% if order %}Редактирование{% else %}Создание{% endif %} заказа-наряда</title>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+        <style>
+            body {
             font-family: Arial, sans-serif;
             line-height: 1.6;
             margin: 0;
             padding: 20px;
             background-color: #f4f4f4;
-        }
-        .container {
+            }
+            .container {
             max-width: 800px;
             margin: 0 auto;
             background-color: #fff;
             padding: 20px;
             border-radius: 5px;
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        }
-        h1 {
+            }
+            h1 {
             color: #333;
-        }
-        label {
+            }
+            label {
             display: block;
             margin-bottom: 5px;
-        }
-        input[type="text"], input[type="number"], textarea {
+            }
+            input[type="text"], input[type="number"], textarea {
             width: 100%;
             padding: 8px;
             margin-bottom: 10px;
             border: 1px solid #ddd;
             border-radius: 4px;
-        }
-        input[type="file"] {
+            }
+            input[type="file"] {
             margin-bottom: 10px;
-        }
-        button {
+            }
+            button {
             background-color: #4CAF50;
             color: white;
             padding: 10px 15px;
             border: none;
             border-radius: 4px;
             cursor: pointer;
-        }
-        button:hover {
+            }
+            button:hover {
             background-color: #45a049;
-        }
-        .button {
+            }
+            .button {
             display: inline-block;
             background-color: #008CBA;
             color: white;
@@ -57,23 +57,23 @@
             text-decoration: none;
             border-radius: 4px;
             margin-top: 20px;
-        }
-        .button:hover {
+            }
+            .button:hover {
             background-color: #007B9A;
-        }
-        .drawing-preview {
+            }
+            .drawing-preview {
             display: inline-block;
             margin: 10px;
             text-align: center;
-        }
-        .drawing-preview img {
+            }
+            .drawing-preview img {
             max-width: 200px;
             max-height: 200px;
             border: 1px solid #ddd;
             border-radius: 4px;
             padding: 5px;
-        }
-        .delete-drawing {
+            }
+            .delete-drawing {
             background-color: #f44336;
             color: white;
             padding: 5px 10px;
@@ -81,87 +81,87 @@
             border-radius: 4px;
             cursor: pointer;
             margin-top: 5px;
-        }
-        .delete-drawing:hover {
+            }
+            .delete-drawing:hover {
             background-color: #d32f2f;
-        }
+            }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>{% if order %}Редактирование{% else %}Создание{% endif %} заказа-наряда на производство оконцевателей</h1>
+    <h1>{% if order %}Редактирование{% else %}Создание{% endif %} заказа-наряда на производство оконцевателей</h1>
 
-        <form action="{{ url_for('update_production_order', order_id=order.id) }}" method="post" enctype="multipart/form-data">
-            <div>
-                <label for="drawing_designation">Обозначение чертежа:</label>
-                <input type="text" id="drawing_designation" name="drawing_designation" value="{{ order.drawing_designation if order else '' }}" required>
-            </div>
-
-            <div>
-                <label for="quantity">Количество:</label>
-                <input type="number" id="quantity" name="quantity" value="{{ order.quantity if order else '' }}" required>
-            </div>
-
-            <div>
-                <label for="desired_production_date_start">Желательная дата изготовления (начало):</label>
-                <input type="text" id="desired_production_date_start" name="desired_production_date_start" value="{{ order.desired_production_date_start if order else '' }}" required>
-            </div>
-
-            <div>
-                <label for="desired_production_date_end">Желательная дата изготовления (конец):</label>
-                <input type="text" id="desired_production_date_end" name="desired_production_date_end" value="{{ order.desired_production_date_end if order else '' }}" required>
-            </div>
-
-            <div>
-                <label for="required_material">Необходимый материал:</label>
-                <input type="text" id="required_material" name="required_material" value="{{ order.required_material if order else '' }}" required>
-            </div>
-
-            <div>
-                <label for="metal_delivery_date">Срок поставки металла:</label>
-                <input type="text" id="metal_delivery_date" name="metal_delivery_date" value="{{ order.metal_delivery_date if order else '' }}" required>
-            </div>
-
-            <div>
-                <label for="notes">Примечания:</label>
-                <textarea id="notes" name="notes">{{ order.notes if order else '' }}</textarea>
-            </div>
-
-            <div>
-                <label for="drawing_file">Загрузите чертёж(и):</label>
-                <input type="file" id="drawing_file" name="drawing_file" multiple accept="image/*">
-            </div>
-
-            <div id="drawingPreviews"></div>
-
-            {% if order and drawing_paths %}
-            <div id="existingDrawings">
-                <h3>Существующие чертежи:</h3>
-                {% for path in drawing_paths %}
-                <div class="drawing-preview" data-path="{{ path }}">
-                    <img src="{{ path if path.startswith('/static/') else '/static/' + path }}" alt="Чертеж">
-                    <br>
-                    {{ path.split('/')[-1] }}
-                    <br>
-                    <button type="button" class="delete-drawing" data-path="{{ path }}">Удалить</button>
-                </div>
-                {% endfor %}
-            </div>
-            {% endif %}
-
-            <input type="hidden" id="deletedDrawings" name="delete_drawing" value="">
-
-            <button type="submit">{% if order %}Обновить{% else %}Создать{% endif %} заказ-наряд</button>
-        </form>
-
-        {% if order %}
+    <form id="orderForm" method="POST" enctype="multipart/form-data"
+          action="{% if order %}{{ url_for('update_production_order', order_id=order.id) }}{% else %}{{ url_for('create_production_order') }}{% endif %}">
         <div>
-            <a href="{{ url_for('drawing_history', order_id=order.id) }}" class="button">История чертежей</a>
+            <label for="drawing_designation">Обозначение чертежа:</label>
+            <input type="text" id="drawing_designation" name="drawing_designation" value="{{ order.drawing_designation if order else '' }}" required>
+        </div>
+
+        <div>
+            <label for="quantity">Количество:</label>
+            <input type="number" id="quantity" name="quantity" value="{{ order.quantity if order else '' }}" required>
+        </div>
+
+        <div>
+            <label for="desired_production_date_start">Желательная дата изготовления (начало):</label>
+            <input type="text" id="desired_production_date_start" name="desired_production_date_start" value="{{ order.desired_production_date_start if order else '' }}" required>
+        </div>
+
+        <div>
+            <label for="desired_production_date_end">Желательная дата изготовления (конец):</label>
+            <input type="text" id="desired_production_date_end" name="desired_production_date_end" value="{{ order.desired_production_date_end if order else '' }}" required>
+        </div>
+
+        <div>
+            <label for="required_material">Необходимый материал:</label>
+            <input type="text" id="required_material" name="required_material" value="{{ order.required_material if order else '' }}" required>
+        </div>
+
+        <div>
+            <label for="metal_delivery_date">Срок поставки металла:</label>
+            <input type="text" id="metal_delivery_date" name="metal_delivery_date" value="{{ order.metal_delivery_date if order else '' }}" required>
+        </div>
+
+        <div>
+            <label for="notes">Примечания:</label>
+            <textarea id="notes" name="notes">{{ order.notes if order else '' }}</textarea>
+        </div>
+
+        <div>
+            <label for="drawing_file">Загрузите чертёж(и):</label>
+            <input type="file" id="drawing_file" name="drawing_file" multiple accept="image/*">
+        </div>
+
+        <div id="drawingPreviews"></div>
+
+        {% if order and drawing_paths %}
+        <div id="existingDrawings">
+            <h3>Существующие чертежи:</h3>
+            {% for path in drawing_paths %}
+            <div class="drawing-preview" data-path="{{ path }}">
+                <img src="{{ path if path.startswith('/static/') else '/static/' + path }}" alt="Чертеж">
+                <br>
+                {{ path.split('/')[-1] }}
+                <br>
+                <button type="button" class="delete-drawing" data-path="{{ path }}">Удалить</button>
+            </div>
+            {% endfor %}
         </div>
         {% endif %}
 
-        <a href="{{ url_for('read_root') }}" class="button">Вернуться на главную страницу</a>
+        <input type="hidden" id="deletedDrawings" name="delete_drawing" value="">
+
+        <button type="submit">{% if order %}Обновить{% else %}Создать{% endif %} заказ-наряд</button>
+    </form>
+
+    {% if order %}
+    <div>
+        <a href="{{ url_for('drawing_history', order_id=order.id) }}">История чертежей</a>
     </div>
+    {% endif %}
+
+    <a href="{{ url_for('read_root') }}" class="button">Вернуться на главную страницу</a>
+
 
     <script>
         $(document).ready(function() {
