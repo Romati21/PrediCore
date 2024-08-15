@@ -13,7 +13,7 @@
          text-decoration: none;
          border-radius: 5px;
          transition: background-color 0.3s;
-         margin-top: 20px; /* Добавьте отступ сверху */
+         margin-top: 20px;
      }
      .button:hover {
          background-color: #45a049;
@@ -26,7 +26,7 @@
          console.log("orderNumber:", orderNumber);
          // 1. Создаем iframe.
          var iframe = document.createElement('iframe');
-         iframe.src = drawingLink; // URL
+         iframe.src = drawingLink;
          iframe.style.width = '80%';
          iframe.style.height = '600px';
          iframe.style.position = 'fixed';
@@ -34,7 +34,7 @@
          iframe.style.left = '50%';
          iframe.style.transform = 'translate(-50%, -50%)';
          iframe.style.border = '1px solid black';
-         iframe.style.zIndex = '1000'; //  Помещаем iframe поверх других элементов
+         iframe.style.zIndex = '1000';
 
          // 2. Создаем фон (overlay).
          var overlay = document.createElement('div');
@@ -44,7 +44,7 @@
          overlay.style.top = '0';
          overlay.style.left = '0';
          overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
-         overlay.style.zIndex = '999'; //  Помещаем overlay под iframe
+         overlay.style.zIndex = '999';
 
          // 3. Добавляем iframe и overlay на страницу.
          document.body.appendChild(iframe);
@@ -58,11 +58,10 @@
 
          iframe.onload = function() {
              // 6. Реализуем механизм выбора чертежа в iframe.
-             //    Пример: поиск всех ссылок на изображения и добавление обработчика клика.
              var drawingLinks = iframe.contentDocument.querySelectorAll('a[href$=".jpg"]');
              for (var i = 0; i < drawingLinks.length; i++) {
                  drawingLinks[i].onclick = function(event) {
-                     event.preventDefault(); //  Отменяем стандартное действие ссылки
+                     event.preventDefault();
                      var drawingUrl = this.href;
 
                      // 7. Отправляем запрос на сервер FastAPI.
@@ -76,7 +75,6 @@
                      })
                          .then(response => response.json())
                          .then(data => {
-                             //  Обрабатываем ответ сервера, например, открываем страницу для печати.
                              if (data.status === 'success') {
                                  window.open(data.print_url, '_blank');
                              } else {
@@ -88,13 +86,62 @@
                              alert('Ошибка при отправке запроса на сервер.');
                          })
                          .finally(() => {
-                             //  Закрываем iframe и overlay.
                              document.body.removeChild(iframe);
                              document.body.removeChild(overlay);
                          });
                  };
              }
          };
+     }
+
+     function printDrawing(drawingPath) {
+         const printWindow = window.open('', '_blank');
+         printWindow.document.write(`
+             <!DOCTYPE html>
+             <html>
+             <head>
+                 <title>Печать чертежа</title>
+                 <style>
+                     body {
+                         margin: 0;
+                         padding: 0;
+                         display: flex;
+                         justify-content: center;
+                         align-items: center;
+                         height: 100vh;
+                     }
+                     img {
+                         max-width: 100%;
+                         max-height: 100%;
+                         object-fit: contain;
+                     }
+                     @media print {
+                         @page {
+                             size: auto;
+                             margin: 0mm;
+                         }
+                         body {
+                             margin: 0;
+                         }
+                     }
+                 </style>
+             </head>
+             <body>
+                 <img src="${drawingPath}" alt="Чертеж для печати" id="print-content">
+                 <script>
+                     window.onload = function() {
+                         setTimeout(function() {
+                             window.print();
+                             window.onafterprint = function() {
+                                 window.close();
+                             };
+                         }, 1000);
+                     };
+                 <\/script>
+             </body>
+             </html>
+         `);
+         printWindow.document.close();
      }
     </script>
 </head>
@@ -133,7 +180,11 @@
                     {% endif %}
                 </td>
                 <td>{{ order.notes }}</td>
-                <td><a href="{{ url_for('print_order', order_id=order.id) }}" target="_blank">Печать</a></td>
+                <td>
+                    <a href="{{ url_for('print_order', order_id=order.id) }}" target="_blank">Печать заказа</a>
+                    <br>
+                    <a href="{{ url_for('view_drawing', order_id=order.id) }}" target="_blank">Просмотр чертежей</a>
+                </td>
             </tr>
             {% endfor %}
         </table>

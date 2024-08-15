@@ -51,6 +51,7 @@ class Order(BaseModel):
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
@@ -275,7 +276,7 @@ async def update_production_order(
 ):
     try:
         logger.info(f"Начало обновления заказа {order_id}")
-        
+
         order = db.query(models.ProductionOrder).filter(models.ProductionOrder.id == order_id).first()
         if not order:
             raise HTTPException(status_code=404, detail="Заказ не найден")
@@ -302,7 +303,7 @@ async def update_production_order(
 
         logger.info(f"Текущие чертежи после обработки: {current_drawings}")
         logger.info(f"Чертежи для удаления после обработки: {delete_drawing_list}")
-        
+
         for drawing in delete_drawing_list:
             if drawing in current_drawings:
                 current_drawings.remove(drawing)
@@ -780,27 +781,12 @@ async def edit_production_order(request: Request, order_id: int, db: Session = D
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
 
-    # Преобразуем даты в строковый формат для отображения в форме
-    order_data = {
-        "id": order.id,
-        "order_number": order.order_number,
-        "drawing_designation": order.drawing_designation,
-        "quantity": order.quantity,
-        "desired_production_date_start": order.desired_production_date_start.strftime('%d.%m.%Y'),
-        "desired_production_date_end": order.desired_production_date_end.strftime('%d.%m.%Y'),
-        "required_material": order.required_material,
-        "metal_delivery_date": order.metal_delivery_date,
-        "notes": order.notes,
-        "current_drawing": order.drawing_link
-    }
-
-    # Получаем список всех чертежей для данного заказа и корректируем пути
-    drawings = [file for file in os.listdir(MODIFIED_DRAWINGS_DIR) if file.startswith(order.order_number)]
-    drawing_paths = [f"/static/modified_drawings/{drawing}" for drawing in drawings]
+    drawing_paths = order.drawing_link.split(',') if order.drawing_link else []
+    drawing_paths = [path.lstrip('/').replace('static/', '') for path in drawing_paths]
 
     return templates.TemplateResponse("production_order_form.html", {
         "request": request,
-        "order": order_data,
+        "order": order,
         "drawing_paths": drawing_paths
     })
 

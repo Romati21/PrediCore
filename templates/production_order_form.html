@@ -5,212 +5,286 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>{% if order %}Редактирование{% else %}Создание{% endif %} заказа-наряда</title>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.css">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.js"></script>
         <style>
-            body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            margin: 0;
-            padding: 20px;
-            background-color: #f4f4f4;
-            }
-            .container {
-            max-width: 800px;
-            margin: 0 auto;
-            background-color: #fff;
-            padding: 20px;
-            border-radius: 5px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            }
-            h1 {
-            color: #333;
-            }
-            label {
-            display: block;
-            margin-bottom: 5px;
-            }
-            input[type="text"], input[type="number"], textarea {
-            width: 100%;
-            padding: 8px;
-            margin-bottom: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            }
-            input[type="file"] {
-            margin-bottom: 10px;
-            }
-            button {
-            background-color: #4CAF50;
-            color: white;
-            padding: 10px 15px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            }
-            button:hover {
-            background-color: #45a049;
-            }
-            .button {
-            display: inline-block;
-            background-color: #008CBA;
-            color: white;
-            padding: 10px 15px;
-            text-decoration: none;
-            border-radius: 4px;
-            margin-top: 20px;
-            }
-            .button:hover {
-            background-color: #007B9A;
-            }
-            .drawing-preview {
-            display: inline-block;
-            margin: 10px;
-            text-align: center;
-            }
-            .drawing-preview img {
-            max-width: 200px;
-            max-height: 200px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            padding: 5px;
-            }
-            .delete-drawing {
-            background-color: #f44336;
-            color: white;
-            padding: 5px 10px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            margin-top: 5px;
-            }
-            .delete-drawing:hover {
-            background-color: #d32f2f;
-            }
-    </style>
-</head>
-<body>
-    <h1>{% if order %}Редактирование{% else %}Создание{% endif %} заказа-наряда на производство оконцевателей</h1>
+         body {
+             font-family: Arial, sans-serif;
+             line-height: 1.6;
+             margin: 0;
+             padding: 20px;
+             background-color: #f4f4f4;
+         }
+         .container {
+             max-width: 800px;
+             margin: 0 auto;
+             background-color: #fff;
+             padding: 20px;
+             border-radius: 5px;
+             box-shadow: 0 0 10px rgba(0,0,0,0.1);
+         }
+         h1 {
+             color: #333;
+         }
+         label {
+             display: block;
+             margin-bottom: 5px;
+         }
+         input[type="text"], input[type="number"], textarea {
+             width: 100%;
+             padding: 8px;
+             margin-bottom: 10px;
+             border: 1px solid #ddd;
+             border-radius: 4px;
+         }
+         input[type="file"] {
+             margin-bottom: 10px;
+         }
+         button {
+             background-color: #4CAF50;
+             color: white;
+             padding: 10px 15px;
+             border: none;
+             border-radius: 4px;
+             cursor: pointer;
+         }
+         button:hover {
+             background-color: #45a049;
+         }
+         .button {
+             display: inline-block;
+             background-color: #008CBA;
+             color: white;
+             padding: 10px 15px;
+             text-decoration: none;
+             border-radius: 4px;
+             margin-top: 20px;
+         }
+         .button:hover {
+             background-color: #007B9A;
+         }
+         .drawing-preview {
+             display: inline-block;
+             margin: 10px;
+             text-align: center;
+         }
+         .drawing-preview img {
+             max-width: 200px;
+             max-height: 200px;
+             border: 1px solid #ddd;
+             border-radius: 4px;
+             padding: 5px;
+             cursor: pointer;
+         }
+         .delete-drawing, .print-drawing {
+             background-color: #f44336;
+             color: white;
+             padding: 5px 10px;
+             border: none;
+             border-radius: 4px;
+             cursor: pointer;
+             margin-top: 5px;
+         }
+         .delete-drawing:hover {
+             background-color: #d32f2f;
+         }
+         .print-drawing {
+             background-color: #2196F3;
+             margin-left: 5px;
+         }
+         .print-drawing:hover {
+             background-color: #1976D2;
+         }
+         .ui-datepicker {
+             font-size: 14px;
+         }
+        </style>
+    </head>
+    <body>
+        <h1>{% if order %}Редактирование{% else %}Создание{% endif %} заказа-наряда на производство оконцевателей</h1>
 
-    <form id="orderForm" method="POST" enctype="multipart/form-data"
-          action="{% if order %}{{ url_for('update_production_order', order_id=order.id) }}{% else %}{{ url_for('create_production_order') }}{% endif %}">
-        <div>
-            <label for="drawing_designation">Обозначение чертежа:</label>
-            <input type="text" id="drawing_designation" name="drawing_designation" value="{{ order.drawing_designation if order else '' }}" required>
-        </div>
-
-        <div>
-            <label for="quantity">Количество:</label>
-            <input type="number" id="quantity" name="quantity" value="{{ order.quantity if order else '' }}" required>
-        </div>
-
-        <div>
-            <label for="desired_production_date_start">Желательная дата изготовления (начало):</label>
-            <input type="text" id="desired_production_date_start" name="desired_production_date_start" value="{{ order.desired_production_date_start if order else '' }}" required>
-        </div>
-
-        <div>
-            <label for="desired_production_date_end">Желательная дата изготовления (конец):</label>
-            <input type="text" id="desired_production_date_end" name="desired_production_date_end" value="{{ order.desired_production_date_end if order else '' }}" required>
-        </div>
-
-        <div>
-            <label for="required_material">Необходимый материал:</label>
-            <input type="text" id="required_material" name="required_material" value="{{ order.required_material if order else '' }}" required>
-        </div>
-
-        <div>
-            <label for="metal_delivery_date">Срок поставки металла:</label>
-            <input type="text" id="metal_delivery_date" name="metal_delivery_date" value="{{ order.metal_delivery_date if order else '' }}" required>
-        </div>
-
-        <div>
-            <label for="notes">Примечания:</label>
-            <textarea id="notes" name="notes">{{ order.notes if order else '' }}</textarea>
-        </div>
-
-        <div>
-            <label for="drawing_file">Загрузите чертёж(и):</label>
-            <input type="file" id="drawing_file" name="drawing_file" multiple accept="image/*">
-        </div>
-
-        <div id="drawingPreviews"></div>
-
-        {% if order and drawing_paths %}
-        <div id="existingDrawings">
-            <h3>Существующие чертежи:</h3>
-            {% for path in drawing_paths %}
-            <div class="drawing-preview" data-path="{{ path }}">
-                <img src="{{ path if path.startswith('/static/') else '/static/' + path }}" alt="Чертеж">
-                <br>
-                {{ path.split('/')[-1] }}
-                <br>
-                <button type="button" class="delete-drawing" data-path="{{ path }}">Удалить</button>
+        <form id="orderForm" method="POST" enctype="multipart/form-data"
+              action="{% if order %}{{ url_for('update_production_order', order_id=order.id) }}{% else %}{{ url_for('create_production_order') }}{% endif %}">
+            <div>
+                <label for="drawing_designation">Обозначение чертежа:</label>
+                <input type="text" id="drawing_designation" name="drawing_designation" value="{{ order.drawing_designation if order else '' }}" required>
             </div>
-            {% endfor %}
+
+            <div>
+                <label for="quantity">Количество:</label>
+                <input type="number" id="quantity" name="quantity" value="{{ order.quantity if order else '' }}" required>
+            </div>
+
+            <div>
+                <label for="desired_production_date_start">Желательная дата изготовления (начало):</label>
+                <input type="text" id="desired_production_date_start" name="desired_production_date_start" value="{{ order.desired_production_date_start.strftime('%d.%m.%Y') if order and order.desired_production_date_start else '' }}" required readonly>
+            </div>
+
+            <div>
+                <label for="desired_production_date_end">Желательная дата изготовления (конец):</label>
+                <input type="text" id="desired_production_date_end" name="desired_production_date_end" value="{{ order.desired_production_date_end.strftime('%d.%m.%Y') if order and order.desired_production_date_end else '' }}" required readonly>
+            </div>
+
+            <div>
+                <label for="required_material">Необходимый материал:</label>
+                <input type="text" id="required_material" name="required_material" value="{{ order.required_material if order else '' }}" required>
+            </div>
+
+            <div>
+                <label for="metal_delivery_date">Срок поставки металла:</label>
+                <input type="text" id="metal_delivery_date" name="metal_delivery_date" value="{{ order.metal_delivery_date if order else '' }}" required>
+            </div>
+
+            <div>
+                <label for="notes">Примечания:</label>
+                <textarea id="notes" name="notes">{{ order.notes if order else '' }}</textarea>
+            </div>
+
+            <div>
+                <label for="drawing_file">Загрузите чертёж(и):</label>
+                <input type="file" id="drawing_file" name="drawing_file" multiple accept="image/*">
+            </div>
+
+            <div id="drawingPreviews"></div>
+
+            {% if order and drawing_paths %}
+            <div id="existingDrawings">
+                <h3>Существующие чертежи:</h3>
+                {% for path in drawing_paths %}
+                <div class="drawing-preview" data-path="{{ path }}">
+                    <a href="{{ url_for('static', path=path) }}" target="_blank">
+                        <img src="{{ url_for('static', path=path) }}" alt="Чертеж">
+                    </a>
+                    <br>
+                    {{ path.split('/')[-1] }}
+                    <br>
+                    <button type="button" class="delete-drawing" data-path="{{ path }}">Удалить</button>
+                    <button type="button" class="print-drawing" onclick="printDrawing('{{ url_for('static', path=path) }}')">Печать</button>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <input type="hidden" id="deletedDrawings" name="delete_drawing" value="">
+
+            <button type="submit">{% if order %}Обновить{% else %}Создать{% endif %} заказ-наряд</button>
+        </form>
+
+        {% if order %}
+        <div>
+            <a href="{{ url_for('drawing_history', order_id=order.id) }}">История чертежей</a>
         </div>
         {% endif %}
 
-        <input type="hidden" id="deletedDrawings" name="delete_drawing" value="">
+        <a href="{{ url_for('read_root') }}" class="button">Вернуться на главную страницу</a>
 
-        <button type="submit">{% if order %}Обновить{% else %}Создать{% endif %} заказ-наряд</button>
-    </form>
+        <script>
+         $(document).ready(function() {
+             let deletedDrawings = [];
+             $.datepicker.setDefaults($.datepicker.regional["ru"]);
 
-    {% if order %}
-    <div>
-        <a href="{{ url_for('drawing_history', order_id=order.id) }}">История чертежей</a>
-    </div>
-    {% endif %}
+             $("#desired_production_date_start, #desired_production_date_end").datepicker({
+                 dateFormat: "dd.mm.yy",
+                 changeMonth: true,
+                 changeYear: true
+             });
 
-    <a href="{{ url_for('read_root') }}" class="button">Вернуться на главную страницу</a>
+             $('#drawing_file').change(function(e) {
+                 let files = e.target.files;
+                 for (let i = 0; i < files.length; i++) {
+                     let file = files[i];
+                     let reader = new FileReader();
+                     reader.onload = function(e) {
+                         let preview = $('<div class="drawing-preview">')
+                             .append($('<a>').attr('href', e.target.result).attr('target', '_blank')
+                                             .append($('<img>').attr('src', e.target.result).attr('alt', 'Чертеж'))
+                             )
+                             .append($('<br>'))
+                             .append(file.name)
+                             .append($('<br>'))
+                             .append($('<button type="button" class="delete-drawing">').text('Удалить').data('file', file.name));
+                         $('#drawingPreviews').append(preview);
+                     }
+                     reader.readAsDataURL(file);
+                 }
+             });
 
+             $(document).on('click', '.delete-drawing', function() {
+                 let path = $(this).data('path');
+                 let fileName = $(this).data('file');
+                 if (path) {
+                     deletedDrawings.push(path);
+                     $('#deletedDrawings').val(deletedDrawings.join(','));
+                 }
+                 $(this).closest('.drawing-preview').remove();
 
-    <script>
-        $(document).ready(function() {
-            let deletedDrawings = [];
+                 // Удаление файла из input file
+                 let drawingFileInput = $('#drawing_file')[0];
+                 let newFileList = Array.from(drawingFileInput.files).filter(file => file.name !== fileName);
+                 drawingFileInput.files = new FileListItems(newFileList);
+             });
 
-            $('#drawing_file').change(function(e) {
-                let files = e.target.files;
-                for (let i = 0; i < files.length; i++) {
-                    let file = files[i];
-                    let reader = new FileReader();
-                    reader.onload = function(e) {
-                        let preview = $('<div class="drawing-preview">')
-                            .append($('<img>').attr('src', e.target.result))
-                            .append($('<br>'))
-                            .append(file.name)
-                            .append($('<br>'))
-                            .append($('<button type="button" class="delete-drawing">').text('Удалить').data('file', file.name));
-                        $('#drawingPreviews').append(preview);
-                    }
-                    reader.readAsDataURL(file);
-                }
-            });
+             $('#orderForm').submit(function() {
+                 $('#deletedDrawings').val(deletedDrawings.join(','));
+             });
+         });
 
-            $(document).on('click', '.delete-drawing', function() {
-                let path = $(this).data('path');
-                let fileName = $(this).data('file');
-                if (path) {
-                    deletedDrawings.push(path);
-                    $('#deletedDrawings').val(deletedDrawings.join(','));
-                }
-                $(this).closest('.drawing-preview').remove();
+         // Вспомогательный класс для создания нового FileList
+         function FileListItems(files) {
+             var b = new ClipboardEvent("").clipboardData || new DataTransfer();
+             for (var i = 0, len = files.length; i < len; i++) b.items.add(files[i]);
+             return b.files;
+         }
 
-                // Удаление файла из input file
-                let drawingFileInput = $('#drawing_file')[0];
-                let newFileList = Array.from(drawingFileInput.files).filter(file => file.name !== fileName);
-                drawingFileInput.files = new FileListItems(newFileList);
-            });
-
-            $('#orderForm').submit(function() {
-                $('#deletedDrawings').val(deletedDrawings.join(','));
-            });
-        });
-
-        // Вспомогательный класс для создания нового FileList
-        function FileListItems(files) {
-            var b = new ClipboardEvent("").clipboardData || new DataTransfer();
-            for (var i = 0, len = files.length; i < len; i++) b.items.add(files[i]);
-            return b.files;
-        }
-    </script>
-</body>
+         function printDrawing(drawingPath) {
+             const printWindow = window.open('', '_blank');
+             printWindow.document.write(`
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>Печать чертежа</title>
+                        <style>
+                            body {
+                                margin: 0;
+                                padding: 0;
+                                display: flex;
+                                justify-content: center;
+                                align-items: center;
+                                height: 100vh;
+                            }
+                            img {
+                                max-width: 100%;
+                                max-height: 100%;
+                                object-fit: contain;
+                            }
+                            @media print {
+                                @page {
+                                    size: auto;
+                                    margin: 0mm;
+                                }
+                                body {
+                                    margin: 0;
+                                }
+                            }
+                        </style>
+                    </head>
+                    <body>
+                        <img src="${drawingPath}" alt="Чертеж для печати" id="print-content">
+                        <script>
+                            window.onload = function() {
+                                setTimeout(function() {
+                                    window.print();
+                                    window.onafterprint = function() {
+                                        window.close();
+                                    };
+                                }, 1000);
+                            };
+                        <\/script>
+                    </body>
+                    </html>
+             `);
+             printWindow.document.close();
+         }
+        </script>
+    </body>
 </html>
