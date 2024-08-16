@@ -797,16 +797,13 @@ async def drawing_history(request: Request, order_id: int, db: Session = Depends
         raise HTTPException(status_code=404, detail="Заказ не найден")
 
     current_drawings = order.drawing_link.split(',') if order.drawing_link else []
-    current_drawings = [path.replace('static/', '').lstrip('/') for path in current_drawings]
+    current_drawings = [path.lstrip('/').replace('static/', '') for path in current_drawings]
 
     archived_drawings = order.archived_drawings.split(',') if order.archived_drawings else []
-    archived_drawings = [path.replace('static/', '').lstrip('/') for path in archived_drawings]
-
-    all_drawings = current_drawings + archived_drawings
+    archived_drawings = [path.lstrip('/').replace('static/', '') for path in archived_drawings]
 
     logger.info(f"Текущие чертежи для заказа {order_id}: {current_drawings}")
     logger.info(f"Архивированные чертежи для заказа {order_id}: {archived_drawings}")
-    logger.info(f"Все чертежи для заказа {order_id}: {all_drawings}")
 
     return templates.TemplateResponse("drawing_history.html", {
         "request": request,

@@ -5,9 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>История чертежей для заказа {{ order.order_number }}</title>
     <style>
-        .drawing-container { display: flex; flex-wrap: wrap; }
-        .drawing-item { margin: 10px; text-align: center; }
-        .drawing-item img { max-width: 200px; max-height: 200px; }
+        .drawing-container {
+            display: flex;
+            flex-wrap: wrap;
+        }
+        .drawing-item {
+            margin: 10px;
+            text-align: center;
+        }
+        .drawing-item img {
+            max-width: 200px;
+            max-height: 200px;
+            cursor: pointer;
+        }
+        .print-button {
+            margin-top: 5px;
+        }
     </style>
 </head>
 <body>
@@ -17,8 +30,11 @@
     <div class="drawing-container">
     {% for path in current_drawings %}
         <div class="drawing-item">
-            <img src="{{ url_for('static', path=path) }}" alt="Чертеж">
+            <a href="{{ url_for('static', path=path) }}" target="_blank">
+                <img src="{{ url_for('static', path=path) }}" alt="Чертеж">
+            </a>
             <p>{{ path.split('/')[-1] }}</p>
+            <button class="print-button" onclick="printDrawing('{{ url_for('static', path=path) }}')">Печать</button>
         </div>
     {% endfor %}
     </div>
@@ -27,12 +43,67 @@
     <div class="drawing-container">
     {% for path in archived_drawings %}
         <div class="drawing-item">
-            <img src="{{ url_for('static', path=path) }}" alt="Архивированный чертеж">
+            <a href="{{ url_for('static', path=path) }}" target="_blank">
+                <img src="{{ url_for('static', path=path) }}" alt="Архивированный чертеж">
+            </a>
             <p>{{ path.split('/')[-1] }}</p>
+            <button class="print-button" onclick="printDrawing('{{ url_for('static', path=path) }}')">Печать</button>
         </div>
     {% endfor %}
     </div>
 
     <a href="{{ url_for('edit_production_order', order_id=order.id) }}">Вернуться к редактированию заказа</a>
+
+    <script>
+        function printDrawing(drawingPath) {
+            const printWindow = window.open('', '_blank');
+            printWindow.document.write(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Печать чертежа</title>
+                    <style>
+                        body {
+                            margin: 0;
+                            padding: 0;
+                            display: flex;
+                            justify-content: center;
+                            align-items: center;
+                            height: 100vh;
+                        }
+                        img {
+                            max-width: 100%;
+                            max-height: 100%;
+                            object-fit: contain;
+                        }
+                        @media print {
+                            @page {
+                                size: auto;
+                                margin: 0mm;
+                            }
+                            body {
+                                margin: 0;
+                            }
+                        }
+                    </style>
+                </head>
+                <body>
+                    <img src="${drawingPath}" alt="Чертеж для печати" id="print-content">
+                    <script>
+                        window.onload = function() {
+                            setTimeout(function() {
+                                window.print();
+                                window.onafterprint = function() {
+                                    window.close();
+                                };
+                            }, 1000);
+                        };
+                    <\/script>
+                </body>
+                </html>
+            `);
+            printWindow.document.close();
+        }
+    </script>
 </body>
 </html>
