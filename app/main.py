@@ -1,19 +1,30 @@
-from fastapi import FastAPI, Depends, HTTPException, Request, Form, UploadFile, File
-from sqlalchemy.orm import Session
-from app import models, repository
-from app.database import SessionLocal, engine
+from fastapi import FastAPI, WebSocket, Depends, HTTPException, Request, Form, UploadFile, File, BackgroundTasks
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.websockets import WebSocketDisconnect
+from sqlalchemy.orm import Session
+from app import models, repository
+from app.database import SessionLocal, engine
+from app.cleanup_drawings import cleanup_original_drawings
+from app.websocket_manager import manager
 from datetime import date, datetime
 from pydantic import BaseModel
 from pathlib import Path
-import qrcode, os, math, time, shutil
 from PIL import Image, ImageDraw, ImageFont, ImageFile
-import io, base64, re, random, string, logging
-from fastapi import BackgroundTasks
-from app.cleanup_drawings import cleanup_original_drawings
 from typing import List
+import qrcode
+import os
+import math
+import time
+import shutil
+import io
+import base64
+import re
+import random
+import string
+import logging
+import json
 
 
 logging.basicConfig(level=logging.INFO)
@@ -62,6 +73,24 @@ def get_db():
     finally:
         db.close()
 
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    logger.info(f"WebSocket соединение установлено: {websocket.client}")
+    try:
+        while True:
+            data = await websocket.receive_text()
+            if data == 'pong':
+                continue  # Игнорируем pong-сообщения
+            elif data != 'ping':
+                logger.info(f"Получено сообщение: {data}")
+                await manager.broadcast(f"Message text was: {data}")
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+        logger.info(f"WebSocket соединение закрыто: {websocket.client}")
+    except Exception as e:
+        logger.error(f"Ошибка WebSocket: {e}")
+        manager.disconnect(websocket)
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
@@ -202,7 +231,7 @@ async def create_production_order(
             notes=notes,
             publication_date=datetime.now().date()
         )
-        
+
         logger.info(f"Создан новый заказ: {order.order_number}")
 
         processed_drawings = []
@@ -227,7 +256,7 @@ async def create_production_order(
 
                         # Генерация QR-кода и добавление на чертеж
                         processed_filepath = process_drawing(standardized_drawing_path, order)
-                        
+
                         if processed_filepath:
                             processed_drawings.append(processed_filepath)
                         else:
@@ -248,9 +277,12 @@ async def create_production_order(
             logger.warning(f"Не удалось обработать ни один чертеж для заказа {order.order_number}")
             order.drawing_link = ''
 
-        db.add(order)
+        db.add(new_order)
         db.commit()
-        logger.info(f"Заказ успешно сохранен в базе данных: {order.id}")
+        db.refresh(new_order)
+
+        # Отправляем уведомление об обновлении
+        await manager.broadcast(json.dumps({"action": "new_order", "order": new_order.to_dict()}))
 
         return RedirectResponse(url="/production_orders", status_code=303)
 
@@ -353,6 +385,11 @@ async def update_production_order(
         # Сохраняем изменения
         db.commit()
         logger.info(f"Заказ успешно обновлен: {order.id}")
+
+        # Отправляем уведомление об обновлении
+        update_message = json.dumps({"action": "update_order", "order": order.to_dict()})
+        logger.info(f"Отправка уведомления об обновлении: {update_message}")
+        await manager.broadcast(update_message)
 
         return RedirectResponse(url="/production_orders", status_code=303)
 
@@ -811,6 +848,11 @@ async def drawing_history(request: Request, order_id: int, db: Session = Depends
         "current_drawings": current_drawings,
         "archived_drawings": archived_drawings
     })
+
+@app.get("/api/orders")
+async def get_orders(db: Session = Depends(get_db)):
+    orders = db.query(models.ProductionOrder).all()
+    return [order.to_dict() for order in orders]
 
 
 if __name__ == "__main__":

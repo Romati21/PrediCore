@@ -101,7 +101,13 @@
         </style>
     </head>
     <body>
-        <h1>{% if order %}Редактирование{% else %}Создание{% endif %} заказа-наряда на производство оконцевателей</h1>
+        <h1>
+            {% if order %}
+            Редактирование заказа-наряда {{ order.order_number }}
+            {% else %}
+            Создание заказа-наряда на производство оконцевателей
+            {% endif %}
+        </h1>
 
         <form id="orderForm" method="POST" enctype="multipart/form-data"
               action="{% if order %}{{ url_for('update_production_order', order_id=order.id) }}{% else %}{{ url_for('create_production_order') }}{% endif %}">

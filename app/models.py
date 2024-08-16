@@ -77,3 +77,18 @@ class ProductionOrder(Base):
 
     # def update_drawing_link(self, new_link: str):
     #     self.drawing_link = new_link
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "order_number": self.order_number,
+            "publication_date": self.publication_date.isoformat() if self.publication_date else None,
+            "drawing_designation": self.drawing_designation,
+            "drawing_link": self.drawing_link,
+            "quantity": self.quantity,
+            "desired_production_date_start": self.desired_production_date_start.isoformat() if self.desired_production_date_start else None,
+            "desired_production_date_end": self.desired_production_date_end.isoformat() if self.desired_production_date_end else None,
+            "required_material": self.required_material,
+            "metal_delivery_date": self.metal_delivery_date,
+            "notes": self.notes
+        }
