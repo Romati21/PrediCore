@@ -277,12 +277,12 @@ async def create_production_order(
             logger.warning(f"Не удалось обработать ни один чертеж для заказа {order.order_number}")
             order.drawing_link = ''
 
-        db.add(new_order)
+        db.add(order)
         db.commit()
-        db.refresh(new_order)
+        db.refresh(order)
 
         # Отправляем уведомление об обновлении
-        await manager.broadcast(json.dumps({"action": "new_order", "order": new_order.to_dict()}))
+        await manager.broadcast(json.dumps({"action": "new_order", "order": order.to_dict()}))
 
         return RedirectResponse(url="/production_orders", status_code=303)
 
