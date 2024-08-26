@@ -7,8 +7,11 @@ from alembic.runtime.migration import MigrationContext
 from sqlalchemy import create_engine
 from alembic import command
 
+from config import config
+
+
 # Используем ваш URL базы данных
-DATABASE_URL = "postgresql://qr_code_inventory_user:nbvjirF9291@192.168.122.192:5432/qr_code_inventory_db"
+DATABASE_URL = config.SQLALCHEMY_DATABASE_URL
 
 def run_command(command):
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
@@ -18,14 +21,14 @@ def run_command(command):
 def check_and_update_db():
     alembic_cfg = Config("alembic.ini")
     script = ScriptDirectory.from_config(alembic_cfg)
-    
+
     engine = create_engine(DATABASE_URL)
-    
+
     with engine.connect() as conn:
         context = MigrationContext.configure(conn)
         current_rev = context.get_current_revision()
         head_rev = script.get_current_head()
-        
+
         if current_rev != head_rev:
             print("Database is not up to date. Updating...")
             command.upgrade(alembic_cfg, "head")
