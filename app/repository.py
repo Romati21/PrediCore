@@ -4,6 +4,7 @@ import random
 import string
 from datetime import date
 from typing import Union
+from datetime import datetime
 
 def generate_unique_id(db: Session):
     while True:
@@ -70,3 +71,39 @@ def create_production_order(
 
 def get_production_orders(db: Session, skip: int = 0, limit: int = 20):
     return db.query(models.ProductionOrder).offset(skip).limit(limit).all()
+
+
+
+def create_drawing(db: Session, hash: str, file_path: str, file_name: str, file_size: int, mime_type: str):
+    db_drawing = models.Drawing(
+        hash=hash,
+        file_path=file_path,
+        file_name=file_name,
+        file_size=file_size,
+        mime_type=mime_type
+    )
+    db.add(db_drawing)
+    db.commit()
+    db.refresh(db_drawing)
+    return db_drawing
+
+def get_drawing_by_hash(db: Session, hash: str):
+    return db.query(models.Drawing).filter(models.Drawing.hash == hash).first()
+
+def update_drawing_last_used(db: Session, drawing_id: int):
+    db.query(models.Drawing).filter(models.Drawing.id == drawing_id).update({"last_used_at": datetime.utcnow()})
+    db.commit()
+
+def create_order_drawing(db: Session, order_id: int, drawing_id: int, qr_code_path: str = None):
+    db_order_drawing = models.OrderDrawing(
+        order_id=order_id,
+        drawing_id=drawing_id,
+        qr_code_path=qr_code_path
+    )
+    db.add(db_order_drawing)
+    db.commit()
+    db.refresh(db_order_drawing)
+    return db_order_drawing
+
+def get_order_drawings(db: Session, order_id: int):
+    return db.query(models.OrderDrawing).filter(models.OrderDrawing.order_id == order_id).all()
