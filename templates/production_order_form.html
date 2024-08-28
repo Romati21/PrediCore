@@ -109,8 +109,7 @@
             {% endif %}
         </h1>
 
-        <form id="orderForm" method="POST" enctype="multipart/form-data"
-              action="{% if order %}{{ url_for('update_production_order', order_id=order.id) }}{% else %}{{ url_for('create_production_order') }}{% endif %}">
+        <form method="post" enctype="multipart/form-data" action="{% if order %}{{ url_for('update_order', order_id=order.id) }}{% else %}{{ url_for('create_order') }}{% endif %}">
             <div>
                 <label for="drawing_designation">Обозначение чертежа:</label>
                 <input type="text" id="drawing_designation" name="drawing_designation" value="{{ order.drawing_designation if order else '' }}" required>
@@ -148,30 +147,8 @@
 
             <div>
                 <label for="drawing_file">Загрузите чертёж(и):</label>
-                <input type="file" id="drawing_file" name="drawing_file" multiple accept="image/*">
+                <input type="file" id="drawing_file" name="drawing_file" accept=".png,.jpg,.jpeg,.pdf" {% if not order %}required{% endif %}>
             </div>
-
-            <div id="drawingPreviews"></div>
-
-            {% if order and drawing_paths %}
-            <div id="existingDrawings">
-                <h3>Существующие чертежи:</h3>
-                {% for path in drawing_paths %}
-                <div class="drawing-preview" data-path="{{ path }}">
-                    <a href="{{ url_for('static', path=path) }}" target="_blank">
-                        <img src="{{ url_for('static', path=path) }}" alt="Чертеж">
-                    </a>
-                    <br>
-                    {{ path.split('/')[-1] }}
-                    <br>
-                    <button type="button" class="delete-drawing" data-path="{{ path }}">Удалить</button>
-                    <button type="button" class="print-drawing" onclick="printDrawing('{{ url_for('static', path=path) }}')">Печать</button>
-                </div>
-                {% endfor %}
-            </div>
-            {% endif %}
-
-            <input type="hidden" id="deletedDrawings" name="delete_drawing" value="">
 
             <button type="submit">{% if order %}Обновить{% else %}Создать{% endif %} заказ-наряд</button>
         </form>

@@ -1,10 +1,11 @@
 from sqlalchemy.orm import Session
-from app import models
+from app import models, schemas
 import random
 import string
 from datetime import date
 from typing import Union
 from datetime import datetime
+from typing import List
 
 def generate_unique_id(db: Session):
     while True:
@@ -41,29 +42,8 @@ def generate_unique_order_number(db: Session):
         if not db.query(models.ProductionOrder).filter(models.ProductionOrder.order_number == order_number).first():
             return order_number
 
-def create_production_order(
-    db: Session,
-    order_number: str,
-    drawing_designation: str,
-    drawing_link: str,
-    quantity: int,
-    desired_production_date_start: date,
-    desired_production_date_end: date,
-    required_material: str,
-    metal_delivery_date: str,
-    notes: str
-):
-    db_order = models.ProductionOrder(
-        order_number=order_number,
-        drawing_designation=drawing_designation,
-        drawing_link=drawing_link,
-        quantity=quantity,
-        desired_production_date_start=desired_production_date_start,
-        desired_production_date_end=desired_production_date_end,
-        required_material=required_material,
-        metal_delivery_date=metal_delivery_date,
-        notes=notes
-    )
+def create_production_order(db: Session, order_data: schemas.ProductionOrderCreate):
+    db_order = models.ProductionOrder(**order_data.dict())
     db.add(db_order)
     db.commit()
     db.refresh(db_order)
@@ -94,16 +74,34 @@ def update_drawing_last_used(db: Session, drawing_id: int):
     db.query(models.Drawing).filter(models.Drawing.id == drawing_id).update({"last_used_at": datetime.utcnow()})
     db.commit()
 
-def create_order_drawing(db: Session, order_id: int, drawing_id: int, qr_code_path: str = None):
-    db_order_drawing = models.OrderDrawing(
-        order_id=order_id,
-        drawing_id=drawing_id,
-        qr_code_path=qr_code_path
-    )
-    db.add(db_order_drawing)
+def create_order_drawing(db: Session, order_id: int, drawing_id: int):
+    order_drawing = models.OrderDrawing(order_id=order_id, drawing_id=drawing_id)
+    db.add(order_drawing)
     db.commit()
-    db.refresh(db_order_drawing)
-    return db_order_drawing
+    db.refresh(order_drawing)
+    return order_drawing
 
 def get_order_drawings(db: Session, order_id: int):
     return db.query(models.OrderDrawing).filter(models.OrderDrawing.order_id == order_id).all()
+
+def get_or_create_drawing(db: Session, file_hash: str, file_path: str, file_name: str, file_size: int, mime_type: str):
+    drawing = db.query(models.Drawing).filter(models.Drawing.hash == file_hash).first()
+    if not drawing:
+        drawing = models.Drawing(
+            hash=file_hash,
+            file_path=file_path,
+            file_name=file_name,
+            file_size=file_size,
+            mime_type=mime_type
+        )
+        db.add(drawing)
+        db.commit()
+        db.refresh(drawing)
+    return drawing
+
+def get_drawings_by_order(db: Session, order_id: int) -> List[models.Drawing]:
+    return db.query(models.Drawing).join(models.OrderDrawing).filter(models.OrderDrawing.order_id == order_id).all()
+
+def delete_order_drawings(db: Session, order_id: int) -> None:
+    db.query(models.OrderDrawing).filter(models.OrderDrawing.order_id == order_id).delete()
+    db.commit()

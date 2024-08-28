@@ -1,18 +1,21 @@
 from fastapi import FastAPI, WebSocket, Depends, HTTPException, Request, Form, UploadFile, File, BackgroundTasks
+from app.utils import file_utils
+import asyncio
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.websockets import WebSocketDisconnect
 from sqlalchemy.orm import Session
-from app import models, repository
+from app import models, repository, schemas
 from app.database import SessionLocal, engine
 from app.cleanup_drawings import cleanup_original_drawings
 from app.websocket_manager import manager
+from app.schemas import ProductionOrderCreate
 from datetime import date, datetime
 from pydantic import BaseModel
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageFile
-from typing import List
+from typing import List, Optional
 import qrcode
 import os
 import math
@@ -25,6 +28,7 @@ import random
 import string
 import logging
 import json
+import traceback
 
 
 logging.basicConfig(level=logging.INFO)
@@ -106,29 +110,29 @@ async def show_data(request: Request, db: Session = Depends(get_db)):
     inventory = repository.get_inventory(db)
     return templates.TemplateResponse("data.html", {"request": request, "data": inventory})
 
-@app.post("/api/create_order")
-async def create_order(order: Order, db: Session = Depends(get_db)):
-    # Генерация уникального номера заказа (вы можете использовать свою логику)
-    unique_id = repository.generate_unique_id(db)
+# @app.post("/api/create_order")
+# async def create_order(order: Order, db: Session = Depends(get_db)):
+#     # Генерация уникального номера заказа (вы можете использовать свою логику)
+#     unique_id = repository.generate_unique_id(db)
 
-    # Создание QR-кода
-    qr = qrcode.QRCode(version=1, box_size=10, border=5)
-    qr.add_data(f"Order ID: {unique_id}, Customer: {order.customer_name}, Product: {order.product_name}, Quantity: {order.quantity}")
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
+#     # Создание QR-кода
+#     qr = qrcode.QRCode(version=1, box_size=10, border=5)
+#     qr.add_data(f"Order ID: {unique_id}, Customer: {order.customer_name}, Product: {order.product_name}, Quantity: {order.quantity}")
+#     qr.make(fit=True)
+#     img = qr.make_image(fill_color="black", back_color="white")
 
-    # Сохранение QR-кода в байтовый поток
-    buffer = io.BytesIO()
-    img.save(buffer)
-    qr_code = base64.b64encode(buffer.getvalue()).decode()
+#     # Сохранение QR-кода в байтовый поток
+#     buffer = io.BytesIO()
+#     img.save(buffer)
+#     qr_code = base64.b64encode(buffer.getvalue()).decode()
 
-    # Сохранение заказа в базу данных
-    new_order = repository.create_order(db, unique_id, order.customer_name, order.product_name, order.quantity)
+#     # Сохранение заказа в базу данных
+#     new_order = repository.create_order(db, unique_id, order.customer_name, order.product_name, order.quantity)
 
-    return JSONResponse({
-        "order_id": unique_id,
-        "qr_code": qr_code
-    })
+#     return JSONResponse({
+#         "order_id": unique_id,
+#         "qr_code": qr_code
+#     })
 
 
 def generate_qr_code_with_text(data, text):
@@ -204,92 +208,86 @@ def generate_order_number(drawing_designation, db):
             return order_number
 
 
-@app.post("/submit_production_order")
-async def create_production_order(
-    request: Request,
+class OrderDataCreate(BaseModel):
+    drawing_designation: str
+    quantity: int
+    desired_production_date_start: date
+    desired_production_date_end: date
+    required_material: str
+    metal_delivery_date: str
+    notes: str = None
+
+@app.post("/create_order")
+async def create_order(
     drawing_designation: str = Form(...),
-    drawing_file: List[UploadFile] = File(...),
     quantity: int = Form(...),
     desired_production_date_start: str = Form(...),
     desired_production_date_end: str = Form(...),
     required_material: str = Form(...),
-    metal_delivery_date: str = Form(...),
-    notes: str = Form(None),
-    delete_drawing: str = Form(""),
+    metal_delivery_date: Optional[str] = Form(None),
+    notes: Optional[str] = Form(None),
+    drawing_file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
     try:
-        # Создание нового заказа
-        order = models.ProductionOrder(
-            order_number=generate_order_number(drawing_designation, db),
+        logger.info(f"Received order data: drawing_designation={drawing_designation}, "
+                    f"quantity={quantity}, desired_production_date_start={desired_production_date_start}, "
+                    f"desired_production_date_end={desired_production_date_end}, "
+                    f"required_material={required_material}, metal_delivery_date={metal_delivery_date}, "
+                    f"notes={notes}")
+
+        # Преобразуем строковые даты в объекты date
+        start_date = datetime.strptime(desired_production_date_start, "%d.%m.%Y").date()
+        end_date = datetime.strptime(desired_production_date_end, "%d.%m.%Y").date()
+
+        order_data = ProductionOrderCreate(
             drawing_designation=drawing_designation,
             quantity=quantity,
-            desired_production_date_start=datetime.strptime(desired_production_date_start, "%d.%m.%Y").date(),
-            desired_production_date_end=datetime.strptime(desired_production_date_end, "%d.%m.%Y").date(),
+            desired_production_date_start=start_date,
+            desired_production_date_end=end_date,
             required_material=required_material,
             metal_delivery_date=metal_delivery_date,
-            notes=notes,
-            publication_date=datetime.now().date()
+            notes=notes
         )
 
-        logger.info(f"Создан новый заказ: {order.order_number}")
+        # Создаем заказ
+        new_order = repository.create_production_order(db, order_data)
+        logger.info(f"Order created with ID: {new_order.id}")
 
-        processed_drawings = []
-        delete_drawing_list = delete_drawing.split(',') if delete_drawing else []
+        # Обрабатываем файл чертежа
+        file_content = await drawing_file.read()
+        file_hash = file_utils.calculate_file_hash(file_content)
+        file_path = file_utils.get_file_path(file_hash)
 
-        for file in drawing_file:
-            if file.filename and file.filename not in delete_drawing_list:
-                # Генерируем уникальное имя файла
-                timestamp = generate_timestamp()
-                temp_filename = f"drawing_{order.order_number}_{timestamp}_{file.filename}"
-                temp_filepath = os.path.join(TEMP_DIR, temp_filename)
+        # Сохраняем файл
+        await file_utils.save_file(file_content, file_path)
 
-                # Сохраняем файл
-                with open(temp_filepath, "wb") as buffer:
-                    shutil.copyfileobj(file.file, buffer)
+        logger.info(f"Drawing file saved at: {file_path}")
 
-                # Проверяем, что файл существует и не пустой
-                if os.path.exists(temp_filepath) and os.path.getsize(temp_filepath) > 0:
-                    # Стандартизация изображения
-                    try:
-                        standardized_drawing_path, original_size, new_size = standardize_image(temp_filepath)
+        file_size = len(file_content)
+        mime_type = drawing_file.content_type or "application/octet-stream"
 
-                        # Генерация QR-кода и добавление на чертеж
-                        processed_filepath = process_drawing(standardized_drawing_path, order)
+        # Создаем или получаем запись о чертеже
+        drawing = repository.get_or_create_drawing(db, file_hash, file_path, drawing_file.filename, file_size, mime_type)
 
-                        if processed_filepath:
-                            processed_drawings.append(processed_filepath)
-                        else:
-                            logger.error(f"Не удалось обработать чертеж: {file.filename}")
-                    except Exception as e:
-                        logger.error(f"Ошибка при обработке файла {file.filename}: {str(e)}")
+        # Связываем чертеж с заказом
+        order_drawing = repository.create_order_drawing(db, new_order.id, drawing.id)
 
-                else:
-                    logger.error(f"Файл не был сохранен или пустой: {temp_filepath}")
-
-                # Удаление временного файла
-                if os.path.exists(temp_filepath):
-                    os.remove(temp_filepath)
-
-        if processed_drawings:
-            order.drawing_link = ','.join(processed_drawings)
-        else:
-            logger.warning(f"Не удалось обработать ни один чертеж для заказа {order.order_number}")
-            order.drawing_link = ''
-
-        db.add(order)
+        # Обновляем заказ с информацией о чертеже
+        new_order.drawing_link = file_path
         db.commit()
-        db.refresh(order)
 
-        # Отправляем уведомление об обновлении
-        await manager.broadcast(json.dumps({"action": "new_order", "order": order.to_dict()}))
-
-        return RedirectResponse(url="/production_orders", status_code=303)
-
+        return {"message": "Order created successfully", "order_id": new_order.id, "drawing_id": drawing.id}
+    except ValueError as e:
+        logger.error(f"Error parsing date: {str(e)}")
+        raise HTTPException(status_code=422, detail=f"Invalid date format: {str(e)}")
+    except ValidationError as e:
+        logger.error(f"Validation error: {e.json()}")
+        raise HTTPException(status_code=422, detail=f"Validation error: {e.errors()}")
     except Exception as e:
-        logger.error(f"Ошибка при создании заказа: {str(e)}")
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Ошибка при создании заказа: {str(e)}")
+        logger.error(f"Error creating order: {str(e)}", exc_info=True)
+        db.rollback()  # Откатываем транзакцию в случае ошибки
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 @app.post("/edit_production_order/{order_id}")
 async def update_production_order(
@@ -420,6 +418,37 @@ def archive_drawing(drawing_path: str, order_number: str) -> str:
         logger.error(f"Ошибка при архивации чертежа: {str(e)}")
         return None
 
+@app.put("/update_order/{order_id}")
+async def update_order(
+    order_id: int,
+    order_data: schemas.ProductionOrderUpdate,
+    drawing_file: UploadFile = File(None),
+    db: Session = Depends(get_db)
+):
+    try:
+        # Обновляем данные заказа
+        updated_order = repository.update_production_order(db, order_id, order_data)
+
+        if drawing_file:
+            # Если загружен новый чертеж, обрабатываем его
+            file_hash = await file_utils.calculate_file_hash(drawing_file)
+            file_path = file_utils.get_file_path(file_hash)
+            await file_utils.save_file(drawing_file, file_path)
+            file_size = file_utils.get_file_size(file_path)
+            mime_type = file_utils.get_mime_type(drawing_file.filename)
+
+            # Создаем или получаем запись о чертеже
+            drawing = repository.get_or_create_drawing(db, file_hash, file_path, drawing_file.filename, file_size, mime_type)
+
+            # Удаляем старые связи чертежей с заказом
+            repository.delete_order_drawings(db, order_id)
+
+            # Создаем новую связь чертежа с заказом
+            order_drawing = repository.create_order_drawing(db, order_id, drawing.id)
+
+        return {"message": "Order updated successfully", "order_id": updated_order.id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/production_order_form", response_class=HTMLResponse)
 async def production_order_form(request: Request):
@@ -854,6 +883,46 @@ async def get_orders(db: Session = Depends(get_db)):
     orders = db.query(models.ProductionOrder).all()
     return [order.to_dict() for order in orders]
 
+
+@app.post("/upload_drawing")
+async def upload_drawing(
+    file: UploadFile = File(...),
+    order_id: int = Form(...),
+    db: Session = Depends(get_db)
+):
+    try:
+        # Вычисление хеша файла
+        file_hash = await file_utils.calculate_file_hash(file)
+
+        # Проверка существования чертежа с таким хешем
+        existing_drawing = repository.get_drawing_by_hash(db, file_hash)
+        if existing_drawing:
+            # Если чертеж уже существует, обновляем время последнего использования
+            repository.update_drawing_last_used(db, existing_drawing.id)
+            file_path = existing_drawing.file_path
+        else:
+            # Если чертеж новый, сохраняем его
+            file_path = file_utils.get_file_path(file_hash)
+            await file_utils.save_file(file, file_path)
+
+        # Получаем информацию о файле
+        file_size = file_utils.get_file_size(file_path)
+        mime_type = file_utils.get_mime_type(file.filename)
+
+        # Создаем или получаем запись о чертеже
+        drawing = repository.get_or_create_drawing(db, file_hash, file_path, file.filename, file_size, mime_type)
+
+        # Связываем чертеж с заказом
+        order_drawing = repository.create_order_drawing(db, order_id, drawing.id)
+
+        return {"message": "Drawing uploaded successfully", "drawing_id": drawing.id, "order_drawing_id": order_drawing.id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/order_drawings/{order_id}")
+def get_order_drawings(order_id: int, db: Session = Depends(get_db)):
+    drawings = repository.get_drawings_by_order(db, order_id)
+    return {"drawings": [{"id": d.id, "file_name": d.file_name, "file_path": d.file_path} for d in drawings]}
 
 if __name__ == "__main__":
     uvicorn.run(
