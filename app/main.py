@@ -16,19 +16,9 @@ from pydantic import BaseModel
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageFile
 from typing import List, Optional
-import qrcode
-import os
-import math
-import time
-import shutil
-import io
-import base64
-import re
-import random
-import string
-import logging
-import json
-import traceback
+import qrcode, os, math, time, shutil, io, base64, re, random, string, logging, json, traceback
+import aiofiles
+from pydantic import ValidationError
 
 
 logging.basicConfig(level=logging.INFO)
@@ -217,6 +207,23 @@ class OrderDataCreate(BaseModel):
     metal_delivery_date: str
     notes: str = None
 
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+ALLOWED_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff'}
+
+def is_allowed_file(filename: str) -> bool:
+    return os.path.splitext(filename)[1].lower() in ALLOWED_EXTENSIONS
+
+async def save_upload_file(upload_file: UploadFile, destination: str) -> str:
+    try:
+        async with aiofiles.open(destination, 'wb') as out_file:
+            content = await upload_file.read()
+            if len(content) > MAX_FILE_SIZE:
+                raise HTTPException(status_code=413, detail="File too large")
+            await out_file.write(content)
+        return destination
+    except Exception:
+        raise HTTPException(status_code=500, detail="Could not save file")
+
 @app.post("/create_order")
 async def create_order(
     drawing_designation: str = Form(...),
@@ -226,68 +233,81 @@ async def create_order(
     required_material: str = Form(...),
     metal_delivery_date: Optional[str] = Form(None),
     notes: Optional[str] = Form(None),
-    drawing_file: UploadFile = File(...),
+    drawing_files: List[UploadFile] = File(...),
     db: Session = Depends(get_db)
 ):
+    saved_files = []
     try:
         logger.info(f"Received order data: drawing_designation={drawing_designation}, "
                     f"quantity={quantity}, desired_production_date_start={desired_production_date_start}, "
                     f"desired_production_date_end={desired_production_date_end}, "
                     f"required_material={required_material}, metal_delivery_date={metal_delivery_date}, "
-                    f"notes={notes}")
+                    f"notes={notes}, number of files: {len(drawing_files)}")
 
-        # Преобразуем строковые даты в объекты date
         start_date = datetime.strptime(desired_production_date_start, "%d.%m.%Y").date()
         end_date = datetime.strptime(desired_production_date_end, "%d.%m.%Y").date()
 
-        order_data = ProductionOrderCreate(
+        order_data = schemas.ProductionOrderCreate(
             drawing_designation=drawing_designation,
             quantity=quantity,
             desired_production_date_start=start_date,
             desired_production_date_end=end_date,
             required_material=required_material,
             metal_delivery_date=metal_delivery_date,
-            notes=notes
+            notes=notes,
+            drawing_files=[]  # Пустой список, который мы заполним позже
         )
 
-        # Создаем заказ
         new_order = repository.create_production_order(db, order_data)
         logger.info(f"Order created with ID: {new_order.id}")
 
-        # Обрабатываем файл чертежа
-        file_content = await drawing_file.read()
-        file_hash = file_utils.calculate_file_hash(file_content)
-        file_path = file_utils.get_file_path(file_hash)
+        for drawing_file in drawing_files:
+            if not file_utils.is_allowed_file(drawing_file.filename):
+                raise HTTPException(status_code=400, detail=f"Invalid file type: {drawing_file.filename}")
+            
+            file_content = await drawing_file.read()
+            if len(file_content) > file_utils.MAX_FILE_SIZE:
+                raise HTTPException(status_code=413, detail=f"File too large: {drawing_file.filename}")
+            
+            file_hash = file_utils.calculate_file_hash(file_content)
+            file_extension = os.path.splitext(drawing_file.filename)[1].lower()
+            file_path = file_utils.get_file_path(file_hash, file_extension)
+            
+            await file_utils.save_file(file_content, file_path)
+            saved_files.append(file_path)
 
-        # Сохраняем файл
-        await file_utils.save_file(file_content, file_path)
+            file_size = len(file_content)
+            mime_type = file_utils.get_mime_type(file_path)
+            drawing = repository.get_or_create_drawing(db, file_hash, file_path, drawing_file.filename, file_size, mime_type)
+            repository.create_order_drawing(db, new_order.id, drawing.id)
 
-        logger.info(f"Drawing file saved at: {file_path}")
-
-        file_size = len(file_content)
-        mime_type = drawing_file.content_type or "application/octet-stream"
-
-        # Создаем или получаем запись о чертеже
-        drawing = repository.get_or_create_drawing(db, file_hash, file_path, drawing_file.filename, file_size, mime_type)
-
-        # Связываем чертеж с заказом
-        order_drawing = repository.create_order_drawing(db, new_order.id, drawing.id)
-
-        # Обновляем заказ с информацией о чертеже
-        new_order.drawing_link = file_path
+        new_order.drawing_link = ','.join(saved_files)
         db.commit()
 
-        return {"message": "Order created successfully", "order_id": new_order.id, "drawing_id": drawing.id}
-    except ValueError as e:
-        logger.error(f"Error parsing date: {str(e)}")
-        raise HTTPException(status_code=422, detail=f"Invalid date format: {str(e)}")
+        return JSONResponse(content={"message": "Order created successfully", "order_id": new_order.id}, status_code=201)
+
     except ValidationError as e:
         logger.error(f"Validation error: {e.json()}")
+        # Очистка временных файлов в случае ошибки
+        for file_path in saved_files:
+            if os.path.exists(file_path):
+                os.remove(file_path)
         raise HTTPException(status_code=422, detail=f"Validation error: {e.errors()}")
+    except HTTPException as e:
+        # Очистка временных файлов в случае ошибки
+        for file_path in saved_files:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        raise e
     except Exception as e:
         logger.error(f"Error creating order: {str(e)}", exc_info=True)
-        db.rollback()  # Откатываем транзакцию в случае ошибки
+        # Очистка временных файлов в случае ошибки
+        for file_path in saved_files:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
 
 @app.post("/edit_production_order/{order_id}")
 async def update_production_order(
