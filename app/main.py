@@ -19,14 +19,23 @@ from typing import List, Optional
 import qrcode, os, math, time, shutil, io, base64, re, random, string, logging, json, traceback
 import aiofiles
 from pydantic import ValidationError
+import os
+from PIL import Image
+import logging
+from fastapi import UploadFile, HTTPException
+from fastapi.responses import JSONResponse
+import hashlib
 
 
+# Настройка логгирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 # Определяем все необходимые директории
 STATIC_DIR = "static"
 TEMP_DIR = os.path.join(STATIC_DIR, "temp")
+UPLOAD_DIR = os.path.join(STATIC_DIR, "uploads")
 DRAWINGS_DIR = os.path.join(STATIC_DIR, "drawings")
 MODIFIED_DRAWINGS_DIR = os.path.join(STATIC_DIR, "modified_drawings")
 ARCHIVED_DRAWINGS_DIR = os.path.join(STATIC_DIR, "archived_drawings")
@@ -37,7 +46,8 @@ DIRECTORIES_TO_CREATE = [
     TEMP_DIR,
     DRAWINGS_DIR,
     MODIFIED_DRAWINGS_DIR,
-    ARCHIVED_DRAWINGS_DIR
+    ARCHIVED_DRAWINGS_DIR,
+    UPLOAD_DIR
 ]
 
 # Создаем все необходимые директории
@@ -85,6 +95,14 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         logger.error(f"Ошибка WebSocket: {e}")
         manager.disconnect(websocket)
+
+def calculate_file_hash(file_path):
+    sha256_hash = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        # Читаем и обновляем хэш блоками по 4K
+        for byte_block in iter(lambda: f.read(4096), b""):
+            sha256_hash.update(byte_block)
+    return sha256_hash.hexdigest()
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
@@ -236,7 +254,6 @@ async def create_order(
     drawing_files: List[UploadFile] = File(...),
     db: Session = Depends(get_db)
 ):
-    saved_files = []
     try:
         logger.info(f"Received order data: drawing_designation={drawing_designation}, "
                     f"quantity={quantity}, desired_production_date_start={desired_production_date_start}, "
@@ -261,50 +278,36 @@ async def create_order(
         new_order = repository.create_production_order(db, order_data)
         logger.info(f"Order created with ID: {new_order.id}")
 
+        processed_files = []
         for drawing_file in drawing_files:
             if not file_utils.is_allowed_file(drawing_file.filename):
                 raise HTTPException(status_code=400, detail=f"Invalid file type: {drawing_file.filename}")
-            
-            file_content = await drawing_file.read()
-            if len(file_content) > file_utils.MAX_FILE_SIZE:
-                raise HTTPException(status_code=413, detail=f"File too large: {drawing_file.filename}")
-            
-            file_hash = file_utils.calculate_file_hash(file_content)
-            file_extension = os.path.splitext(drawing_file.filename)[1].lower()
-            file_path = file_utils.get_file_path(file_hash, file_extension)
-            
-            await file_utils.save_file(file_content, file_path)
-            saved_files.append(file_path)
 
-            file_size = len(file_content)
-            mime_type = file_utils.get_mime_type(file_path)
-            drawing = repository.get_or_create_drawing(db, file_hash, file_path, drawing_file.filename, file_size, mime_type)
+            processed_file = await process_uploaded_file(drawing_file)
+            processed_files.append(processed_file)
+
+            file_size = os.path.getsize(processed_file['path'])
+            mime_type = file_utils.get_mime_type(processed_file['path'])
+
+            drawing = repository.get_or_create_drawing(db, processed_file['hash'], processed_file['path'], processed_file['filename'], file_size, mime_type)
             repository.create_order_drawing(db, new_order.id, drawing.id)
 
-        new_order.drawing_link = ','.join(saved_files)
+        new_order.drawing_link = ','.join([file['path'] for file in processed_files])
         db.commit()
 
-        return JSONResponse(content={"message": "Order created successfully", "order_id": new_order.id}, status_code=201)
+        return JSONResponse(content={
+            "message": "Order created successfully", 
+            "order_id": new_order.id,
+            "processed_files": processed_files
+        }, status_code=201)
 
     except ValidationError as e:
         logger.error(f"Validation error: {e.json()}")
-        # Очистка временных файлов в случае ошибки
-        for file_path in saved_files:
-            if os.path.exists(file_path):
-                os.remove(file_path)
         raise HTTPException(status_code=422, detail=f"Validation error: {e.errors()}")
     except HTTPException as e:
-        # Очистка временных файлов в случае ошибки
-        for file_path in saved_files:
-            if os.path.exists(file_path):
-                os.remove(file_path)
         raise e
     except Exception as e:
         logger.error(f"Error creating order: {str(e)}", exc_info=True)
-        # Очистка временных файлов в случае ошибки
-        for file_path in saved_files:
-            if os.path.exists(file_path):
-                os.remove(file_path)
         db.rollback()
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
@@ -640,24 +643,9 @@ def standardize_image(image_path, target_dpi=300, max_size=(5000, 5000)):
         logger.info(f"Изображение успешно стандартизировано: {standardized_path}")
         return str(standardized_path), original_size, new_size
 
-    except FileNotFoundError:
-        logger.error(f"Файл не найден: {image_path}")
-        raise
-
-    except Image.UnidentifiedImageError:
-        logger.error(f"Не удалось идентифицировать изображение: {image_path}")
-        raise
-
-    except PermissionError:
-        logger.error(f"Отказано в доступе к файлу: {image_path}")
-        raise
-
     except Exception as e:
         logger.error(f"Ошибка при стандартизации изображения {image_path}: {str(e)}")
         raise
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 def safe_get_mtime(file_path):
     try:
@@ -665,6 +653,40 @@ def safe_get_mtime(file_path):
     except FileNotFoundError:
         logger.warning(f"Файл не найден: {file_path}")
         return None
+
+async def process_uploaded_file(file: UploadFile):
+    try:
+        # Создаем временный файл
+        temp_file_path = os.path.join(TEMP_DIR, file.filename)
+        with open(temp_file_path, "wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+
+        # Стандартизируем изображение
+        standardized_path, original_size, new_size = standardize_image(temp_file_path)
+
+        # Перемещаем стандартизированное изображение в папку uploads
+        final_path = os.path.join(UPLOAD_DIR, os.path.basename(standardized_path))
+        os.rename(standardized_path, final_path)
+
+        # Удаляем оригинальный файл
+        os.remove(temp_file_path)
+
+        # Вычисляем хэш файла
+        file_hash = calculate_file_hash(final_path)
+
+        return {
+            "filename": os.path.basename(final_path),
+            "path": final_path,
+            "original_size": original_size,
+            "new_size": new_size,
+            "hash": file_hash
+        }
+    except Exception as e:
+        logger.error(f"Ошибка при обработке файла {file.filename}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при обработке файла: {str(e)}")
+
+
 
 def archive_old_drawing(drawing_path):
     drawing_path = drawing_path.replace('static/', '').lstrip('/')
