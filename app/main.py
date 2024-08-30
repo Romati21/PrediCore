@@ -242,6 +242,29 @@ async def save_upload_file(upload_file: UploadFile, destination: str) -> str:
     except Exception:
         raise HTTPException(status_code=500, detail="Could not save file")
 
+def generate_order_number(drawing_designation, db):
+    # Извлекаем первые две цифры из drawing_designation
+    match = re.search(r'\d{2}', drawing_designation)
+    if match:
+        prefix = match.group()
+    else:
+        prefix = '00'  # Если цифры не найдены, используем '00'
+
+    def generate_unique_code():
+        # Генерируем 4-значный код из цифр и заглавных букв
+        chars = string.ascii_uppercase + string.digits
+        return ''.join(random.choice(chars) for _ in range(4))
+
+    while True:
+        unique_code = generate_unique_code()
+        order_number = f'{prefix}{unique_code}'
+
+        # Проверяем, существует ли уже такой order_number
+        existing_order = db.query(models.ProductionOrder).filter_by(order_number=order_number).first()
+        if not existing_order:
+            return order_number
+
+
 @app.post("/create_order")
 async def create_order(
     drawing_designation: str = Form(...),
@@ -264,7 +287,11 @@ async def create_order(
         start_date = datetime.strptime(desired_production_date_start, "%d.%m.%Y").date()
         end_date = datetime.strptime(desired_production_date_end, "%d.%m.%Y").date()
 
+        # Генерируем уникальный номер заказа
+        order_number = generate_order_number(drawing_designation, db)
+
         order_data = schemas.ProductionOrderCreate(
+            order_number=order_number,
             drawing_designation=drawing_designation,
             quantity=quantity,
             desired_production_date_start=start_date,
@@ -272,11 +299,12 @@ async def create_order(
             required_material=required_material,
             metal_delivery_date=metal_delivery_date,
             notes=notes,
+            publication_date=datetime.now().date(),
             drawing_files=[]  # Пустой список, который мы заполним позже
         )
 
         new_order = repository.create_production_order(db, order_data)
-        logger.info(f"Order created with ID: {new_order.id}")
+        logger.info(f"Order created with ID: {new_order.id} and number: {new_order.order_number}")
 
         processed_files = []
         for drawing_file in drawing_files:
@@ -295,9 +323,13 @@ async def create_order(
         new_order.drawing_link = ','.join([file['path'] for file in processed_files])
         db.commit()
 
+        # Отправляем уведомление об обновлении (если эта функциональность нужна)
+        # await manager.broadcast(json.dumps({"action": "new_order", "order": new_order.to_dict()}))
+
         return JSONResponse(content={
             "message": "Order created successfully", 
             "order_id": new_order.id,
+            "order_number": new_order.order_number,
             "processed_files": processed_files
         }, status_code=201)
 
