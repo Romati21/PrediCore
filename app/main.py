@@ -143,12 +143,12 @@ async def show_data(request: Request, db: Session = Depends(get_db)):
 #     })
 
 
-def generate_qr_code_with_text(data, text):
+def generate_qr_code_with_text(order, drawing):
     BASE_DIR = Path(__file__).resolve().parent
     FONT_PATH = BASE_DIR / "static" / "fonts" / "CommitMonoNerdFont-Bold.otf"
 
     qr = qrcode.QRCode(version=1, box_size=10, border=3, error_correction=qrcode.constants.ERROR_CORRECT_H)
-    qr.add_data(data)
+    qr.add_data(order)
     qr.make(fit=True)
     img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
 
@@ -163,7 +163,7 @@ def generate_qr_code_with_text(data, text):
     buffer = io.BytesIO()
     img.save(buffer, format="PNG")
     img_str = base64.b64encode(buffer.getvalue()).decode()
-    return f"data:image/png;base64,{img_str}"
+    return f"path/to/qr_code_{order.id}_{drawing.id}.png"
 
 
 @app.get("/print_order/{order_id}", response_class=HTMLResponse)
@@ -193,27 +193,6 @@ async def show_production_orders(request: Request, db: Session = Depends(get_db)
     logger.info(f"Получено {len(orders)} заказов из базы данных")
     return templates.TemplateResponse("production_orders.html", {"request": request, "orders": orders})
 
-def generate_order_number(drawing_designation, db):
-    # Извлекаем первые две цифры из drawing_designation
-    match = re.search(r'\d{2}', drawing_designation)
-    if match:
-        prefix = match.group()
-    else:
-        prefix = '00'  # Если цифры не найдены, используем '00'
-
-    def generate_unique_code():
-        # Генерируем 4-значный код из цифр и заглавных букв
-        chars = string.ascii_uppercase + string.digits
-        return ''.join(random.choice(chars) for _ in range(4))
-
-    while True:
-        unique_code = generate_unique_code()
-        order_number = f'{prefix}{unique_code}'
-
-        # Проверяем, существует ли уже такой order_number
-        existing_order = db.query(models.ProductionOrder).filter_by(order_number=order_number).first()
-        if not existing_order:
-            return order_number
 
 
 class OrderDataCreate(BaseModel):
@@ -349,14 +328,14 @@ async def update_production_order(
     request: Request,
     order_id: int,
     drawing_designation: str = Form(...),
-    drawing_file: List[UploadFile] = File([]),
+    drawing_files: List[UploadFile] = File([]),
     quantity: int = Form(...),
     desired_production_date_start: str = Form(...),
     desired_production_date_end: str = Form(...),
     required_material: str = Form(...),
-    metal_delivery_date: str = Form(...),
-    notes: str = Form(None),
-    delete_drawing: str = Form(""),
+    metal_delivery_date: Optional[str] = Form(None),
+    notes: Optional[str] = Form(None),
+    delete_drawing: Optional[str] = Form(None),
     db: Session = Depends(get_db)
 ):
     try:
@@ -375,65 +354,62 @@ async def update_production_order(
         order.metal_delivery_date = metal_delivery_date
         order.notes = notes
 
-        logger.info(f"Текущие чертежи заказа: {order.drawing_link}")
-        logger.info(f"Чертежи для удаления: {delete_drawing}")
-
-        # Обработка удаления и архивации чертежей
-        current_drawings = order.drawing_link.split(',') if order.drawing_link else []
-        current_drawings = [path.lstrip('/').replace('static/', '') for path in current_drawings]
-        delete_drawing_list = delete_drawing.split(',') if delete_drawing else []
-        delete_drawing_list = [path.lstrip('/').replace('static/', '') for path in delete_drawing_list]
-        archived_drawings = order.archived_drawings.split(',') if order.archived_drawings else []
-        archived_drawings = [path.lstrip('/').replace('static/', '') for path in archived_drawings]
-
-        logger.info(f"Текущие чертежи после обработки: {current_drawings}")
-        logger.info(f"Чертежи для удаления после обработки: {delete_drawing_list}")
-
-        for drawing in delete_drawing_list:
-            if drawing in current_drawings:
-                current_drawings.remove(drawing)
-                logger.info(f"Удаление чертежа: {drawing}")
-                # Архивация удаленного чертежа
-                archived_path = archive_drawing(drawing, order.order_number)
-                if archived_path:
-                    archived_drawings.append(archived_path)
-                    logger.info(f"Чертеж архивирован: {archived_path}")
-                else:
-                    logger.error(f"Не удалось архивировать чертеж: {drawing}")
+        # Обработка удаления чертежей
+        if delete_drawing:
+            delete_drawing_list = delete_drawing.split(',')
+            for drawing_id in delete_drawing_list:
+                drawing = db.query(models.Drawing).filter(models.Drawing.id == int(drawing_id)).first()
+                if drawing:
+                    # Архивируем чертеж
+                    drawing.archived_at = func.now()
+                    # Удаляем связь с заказом
+                    db.query(models.OrderDrawing).filter(
+                        models.OrderDrawing.order_id == order.id,
+                        models.OrderDrawing.drawing_id == drawing.id
+                    ).delete()
 
         # Обработка новых чертежей
-        for file in drawing_file:
-            if file.filename:
-                logger.info(f"Обработка нового чертежа: {file.filename}")
-                # Генерируем уникальное имя файла
-                timestamp = generate_timestamp()
-                temp_filename = f"drawing_{order.order_number}_{timestamp}_{file.filename}"
-                temp_filepath = os.path.join(TEMP_DIR, temp_filename)
+        for drawing_file in drawing_files:
+            if drawing_file.filename:
+                processed_file = await process_uploaded_file(drawing_file)
 
-                # Сохраняем файл
-                with open(temp_filepath, "wb") as buffer:
-                    shutil.copyfileobj(file.file, buffer)
+                # Проверяем, существует ли уже чертеж с таким хешем
+                existing_drawing = repository.get_drawing_by_hash(db, processed_file['hash'])
 
-                # Обработка чертежа (стандартизация, добавление QR-кода и т.д.)
-                try:
-                    standardized_drawing_path, _, _ = standardize_image(temp_filepath)
-                    processed_filepath = process_drawing(standardized_drawing_path, order)
-                    if processed_filepath:
-                        current_drawings.append(processed_filepath)
-                        logger.info(f"Новый чертеж обработан и добавлен: {processed_filepath}")
-                except Exception as e:
-                    logger.error(f"Ошибка при обработке файла {file.filename}: {str(e)}")
+                if existing_drawing:
+                    # Если чертеж существует, обновляем дату последнего использования
+                    repository.update_drawing_last_used(db, existing_drawing.id)
+                    drawing = existing_drawing
+                else:
+                    # Если чертеж новый, создаем новую запись
+                    drawing = repository.create_drawing(
+                        db,
+                        processed_file['hash'],
+                        processed_file['path'],
+                        processed_file['filename'],
+                        processed_file['file_size'],
+                        processed_file['mime_type']
+                    )
 
-                # Удаление временного файла
-                if os.path.exists(temp_filepath):
-                    os.remove(temp_filepath)
+                # Создаем связь между заказом и чертежом
+                order_drawing = repository.create_order_drawing(db, order.id, drawing.id)
 
-        # Обновляем ссылки на чертежи
-        order.drawing_link = ','.join(current_drawings)
-        order.archived_drawings = ','.join(archived_drawings)
+                # Генерируем QR-код
+                qr_data = f"Order: {order.order_number}, Drawing: {drawing.file_name}"
+                qr_text = order.order_number
+                qr_code_base64 = generate_qr_code_with_text(qr_data, qr_text)
 
-        logger.info(f"Обновленные чертежи заказа: {order.drawing_link}")
-        logger.info(f"Архивированные чертежи заказа: {order.archived_drawings}")
+                # Сохраняем QR-код
+                qr_filename = f"qr_code_{order.id}_{drawing.id}.png"
+                qr_path = os.path.join(UPLOAD_DIR, qr_filename)
+
+                # Декодируем base64 и сохраняем как файл
+                qr_image_data = base64.b64decode(qr_code_base64.split(',')[1])
+                with open(qr_path, 'wb') as f:
+                    f.write(qr_image_data)
+
+                # Обновляем путь к QR-коду в базе данных
+                order_drawing.qr_code_path = qr_path
 
         # Сохраняем изменения
         db.commit()
@@ -450,6 +426,7 @@ async def update_production_order(
         logger.error(f"Ошибка при обновлении заказа: {str(e)}")
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Ошибка при обновлении заказа: {str(e)}")
+
 
 def archive_drawing(drawing_path: str, order_number: str) -> str:
     try:
