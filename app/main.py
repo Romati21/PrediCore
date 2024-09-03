@@ -143,12 +143,12 @@ async def show_data(request: Request, db: Session = Depends(get_db)):
 #     })
 
 
-def generate_qr_code_with_text(order, drawing):
+def generate_qr_code_with_text(data, text):
     BASE_DIR = Path(__file__).resolve().parent
     FONT_PATH = BASE_DIR / "static" / "fonts" / "CommitMonoNerdFont-Bold.otf"
 
     qr = qrcode.QRCode(version=1, box_size=10, border=3, error_correction=qrcode.constants.ERROR_CORRECT_H)
-    qr.add_data(order)
+    qr.add_data(data)
     qr.make(fit=True)
     img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
 
@@ -163,7 +163,7 @@ def generate_qr_code_with_text(order, drawing):
     buffer = io.BytesIO()
     img.save(buffer, format="PNG")
     img_str = base64.b64encode(buffer.getvalue()).decode()
-    return f"path/to/qr_code_{order.id}_{drawing.id}.png"
+    return f"data:image/png;base64,{img_str}"
 
 
 @app.get("/print_order/{order_id}", response_class=HTMLResponse)
@@ -358,24 +358,24 @@ async def update_production_order(
         if delete_drawing:
             delete_drawing_list = delete_drawing.split(',')
             for drawing_id in delete_drawing_list:
-                drawing = db.query(models.Drawing).filter(models.Drawing.id == int(drawing_id)).first()
-                if drawing:
-                    # Архивируем чертеж
-                    drawing.archived_at = func.now()
-                    # Удаляем связь с заказом
-                    db.query(models.OrderDrawing).filter(
-                        models.OrderDrawing.order_id == order.id,
-                        models.OrderDrawing.drawing_id == drawing.id
-                    ).delete()
+                order_drawing = db.query(models.OrderDrawing).filter(
+                    models.OrderDrawing.order_id == order.id,
+                    models.OrderDrawing.drawing_id == int(drawing_id)
+                ).first()
+                if order_drawing:
+                    db.delete(order_drawing)
+                    drawing = db.query(models.Drawing).filter(models.Drawing.id == int(drawing_id)).first()
+                    if drawing:
+                        drawing.archived_at = func.now()
 
         # Обработка новых чертежей
         for drawing_file in drawing_files:
             if drawing_file.filename:
                 processed_file = await process_uploaded_file(drawing_file)
-
+                
                 # Проверяем, существует ли уже чертеж с таким хешем
                 existing_drawing = repository.get_drawing_by_hash(db, processed_file['hash'])
-
+                
                 if existing_drawing:
                     # Если чертеж существует, обновляем дату последнего использования
                     repository.update_drawing_last_used(db, existing_drawing.id)
@@ -390,26 +390,31 @@ async def update_production_order(
                         processed_file['file_size'],
                         processed_file['mime_type']
                     )
-
-                # Создаем связь между заказом и чертежом
-                order_drawing = repository.create_order_drawing(db, order.id, drawing.id)
-
-                # Генерируем QR-код
-                qr_data = f"Order: {order.order_number}, Drawing: {drawing.file_name}"
-                qr_text = order.order_number
-                qr_code_base64 = generate_qr_code_with_text(qr_data, qr_text)
-
-                # Сохраняем QR-код
-                qr_filename = f"qr_code_{order.id}_{drawing.id}.png"
-                qr_path = os.path.join(UPLOAD_DIR, qr_filename)
-
-                # Декодируем base64 и сохраняем как файл
-                qr_image_data = base64.b64decode(qr_code_base64.split(',')[1])
-                with open(qr_path, 'wb') as f:
-                    f.write(qr_image_data)
-
-                # Обновляем путь к QR-коду в базе данных
-                order_drawing.qr_code_path = qr_path
+                
+                # Создаем связь между заказом и чертежом, если она еще не существует
+                existing_order_drawing = db.query(models.OrderDrawing).filter(
+                    models.OrderDrawing.order_id == order.id,
+                    models.OrderDrawing.drawing_id == drawing.id
+                ).first()
+                
+                if not existing_order_drawing:
+                    order_drawing = repository.create_order_drawing(db, order.id, drawing.id)
+                    
+                    # Генерируем QR-код
+                    qr_data = f"Order: {order.order_number}, Drawing: {drawing.file_name}"
+                    qr_code_base64 = generate_qr_code_with_text(qr_data, order.order_number)
+                    
+                    # Сохраняем QR-код
+                    qr_filename = f"qr_code_{order.id}_{drawing.id}.png"
+                    qr_path = os.path.join(UPLOAD_DIR, qr_filename)
+                    
+                    # Декодируем base64 и сохраняем как файл
+                    qr_image_data = base64.b64decode(qr_code_base64.split(',')[1])
+                    with open(qr_path, 'wb') as f:
+                        f.write(qr_image_data)
+                    
+                    # Обновляем путь к QR-коду в базе данных
+                    order_drawing.qr_code_path = qr_path
 
         # Сохраняем изменения
         db.commit()
@@ -898,12 +903,39 @@ async def edit_production_order(request: Request, order_id: int, db: Session = D
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
 
-    drawing_paths = order.drawing_link.split(',') if order.drawing_link else []
-    drawing_paths = [path.lstrip('/').replace('static/', '') for path in drawing_paths]
+    # Загружаем связанные чертежи с дополнительной информацией
+    order_drawings = db.query(models.OrderDrawing).filter(models.OrderDrawing.order_id == order_id).all()
+    drawings_info = []
+    drawing_paths = []
+
+    for order_drawing in order_drawings:
+        drawing = db.query(models.Drawing).filter(models.Drawing.id == order_drawing.drawing_id).first()
+        if drawing and not drawing.archived_at:
+            # Убираем 'static/' из начала пути, если оно есть
+            file_path = drawing.file_path[7:] if drawing.file_path.startswith('static/') else drawing.file_path
+            drawings_info.append({
+                "id": drawing.id,
+                "file_name": drawing.file_name,
+                "file_path": file_path,
+                "qr_code_path": order_drawing.qr_code_path
+            })
+            drawing_paths.append(file_path)
+
+    # Если order.drawing_link все еще используется, добавляем эти пути тоже
+    if order.drawing_link:
+        additional_paths = order.drawing_link.split(',')
+        additional_paths = [path.lstrip('/').replace('static/', '') for path in additional_paths]
+        drawing_paths.extend(additional_paths)
+
+    # Удаляем дубликаты
+    drawing_paths = list(dict.fromkeys(drawing_paths))
+
+    logger.info(f"Пути к чертежам для заказа {order_id}: {drawing_paths}")
 
     return templates.TemplateResponse("production_order_form.html", {
         "request": request,
         "order": order,
+        "drawings": drawings_info,
         "drawing_paths": drawing_paths
     })
 

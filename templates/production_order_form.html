@@ -189,10 +189,10 @@
 
             <div id="drawingPreviews"></div>
 
-            {% if order and order.drawings %}
+            {% if order and drawings %}
             <div id="existingDrawings">
                 <h3>Существующие чертежи:</h3>
-                {% for drawing in order.drawings %}
+                {% for drawing in drawings %}
                 <div class="drawing-preview" data-path="{{ drawing.file_path }}">
                     <a href="{{ url_for('static', path=drawing.file_path) }}" target="_blank">
                         <img src="{{ url_for('static', path=drawing.file_path) }}" alt="Чертеж">
@@ -202,6 +202,9 @@
                     <br>
                     <button type="button" class="delete-drawing" data-id="{{ drawing.id }}">Удалить</button>
                     <button type="button" class="print-drawing" onclick="printDrawing('{{ url_for('static', path=drawing.file_path) }}')">Печать</button>
+                    {% if drawing.qr_code_path %}
+                    <a href="{{ url_for('static', path=drawing.qr_code_path) }}" target="_blank">Просмотр QR-кода</a>
+                    {% endif %}
                 </div>
                 {% endfor %}
             </div>
