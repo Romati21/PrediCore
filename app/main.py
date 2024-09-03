@@ -25,6 +25,7 @@ import logging
 from fastapi import UploadFile, HTTPException
 from fastapi.responses import JSONResponse
 import hashlib
+import mimetypes
 
 
 # Настройка логгирования
@@ -689,12 +690,17 @@ async def process_uploaded_file(file: UploadFile):
         # Вычисляем хэш файла
         file_hash = calculate_file_hash(final_path)
 
+        # Получаем размер файла
+        file_size = os.path.getsize(final_path)
+
         return {
             "filename": os.path.basename(final_path),
             "path": final_path,
             "original_size": original_size,
             "new_size": new_size,
-            "hash": file_hash
+            "hash": file_hash,
+            "file_size": file_size,
+            "mime_type": mimetypes.guess_type(final_path)[0] or 'application/octet-stream'
         }
     except Exception as e:
         logger.error(f"Ошибка при обработке файла {file.filename}: {str(e)}")
