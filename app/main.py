@@ -14,6 +14,8 @@ from app.schemas import ProductionOrderCreate
 from datetime import date, datetime
 from pydantic import BaseModel
 from pathlib import Path
+from sqlalchemy.sql import func
+from sqlalchemy.orm import Session
 from PIL import Image, ImageDraw, ImageFont, ImageFile
 from typing import List, Optional
 import qrcode, os, math, time, shutil, io, base64, re, random, string, logging, json, traceback
@@ -67,7 +69,7 @@ class Order(BaseModel):
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
-
+static_dir = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
@@ -154,7 +156,7 @@ def generate_qr_code_with_text(data, text):
     img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
 
     draw = ImageDraw.Draw(img)
-    font = ImageFont.truetype(str(FONT_PATH), 150)  # Выберите шрифт и размер
+    font = ImageFont.truetype(str(FONT_PATH), 140)  # Выберите шрифт и размер
     text_width, text_height = draw.textbbox((0, 0), text, font=font)[2:]  # Используем textbbox
     text_x = (img.width - text_width) // 2
     text_y = (img.height - text_height) // 2 - 10  # Сдвигаем текст вверх
@@ -395,7 +397,7 @@ async def update_production_order(
                     db.delete(order_drawing)
                     drawing = db.query(models.Drawing).filter(models.Drawing.id == int(drawing_id)).first()
                     if drawing:
-                        drawing.archived_at = func.now()
+                        drawing.archived_at = func.now()  # Теперь эта строка должна работать
 
         # Обработка новых чертежей
         if drawing_files:
@@ -451,7 +453,11 @@ async def update_production_order(
         logger.info(f"Отправка уведомления об обновлении: {update_message}")
         await manager.broadcast(update_message)
 
-        return RedirectResponse(url="/production_orders", status_code=303)
+        return JSONResponse(content={
+            "message": "Order updated successfully", 
+            "order_id": order.id,
+            "order_number": order.order_number
+        }, status_code=200)
 
     except Exception as e:
         logger.error(f"Ошибка при обновлении заказа: {str(e)}")
@@ -755,15 +761,38 @@ async def view_drawing(request: Request, order_id: int, db: Session = Depends(ge
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
 
-    drawing_paths = order.drawing_link.split(',') if order.drawing_link else []
-    drawing_paths = [path.lstrip('/').replace('static/', '') for path in drawing_paths]
+    # Получаем только актуальные (не архивированные) чертежи
+    current_drawings = db.query(models.Drawing).join(models.OrderDrawing).filter(
+        models.OrderDrawing.order_id == order_id,
+        models.Drawing.archived_at == None
+    ).all()
 
-    logger.info(f"Пути к чертежам для заказа {order_id}: {drawing_paths}")
+    drawing_info = []
+    for drawing in current_drawings:
+        order_drawing = db.query(models.OrderDrawing).filter(
+            models.OrderDrawing.order_id == order_id,
+            models.OrderDrawing.drawing_id == drawing.id
+        ).first()
+        
+        # Удаляем префикс "static/" из пути к файлу, если он есть
+        file_path = drawing.file_path
+        if file_path.startswith("static/"):
+            file_path = file_path[7:]
+        
+        qr_code_path = order_drawing.qr_code_path if order_drawing else None
+        if qr_code_path and qr_code_path.startswith("static/"):
+            qr_code_path = qr_code_path[7:]
+
+        drawing_info.append({
+            "path": file_path,
+            "name": drawing.file_name,
+            "qr_code_path": qr_code_path
+        })
 
     return templates.TemplateResponse("view_drawing.html", {
         "request": request,
         "order": order,
-        "drawing_paths": drawing_paths
+        "drawings": drawing_info
     })
 
 
@@ -960,20 +989,23 @@ async def drawing_history(request: Request, order_id: int, db: Session = Depends
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
 
-    current_drawings = order.drawing_link.split(',') if order.drawing_link else []
-    current_drawings = [path.lstrip('/').replace('static/', '') for path in current_drawings]
+    # Получаем текущие чертежи
+    current_drawings = db.query(models.Drawing).join(models.OrderDrawing).filter(
+        models.OrderDrawing.order_id == order_id,
+        models.Drawing.archived_at == None
+    ).all()
 
-    archived_drawings = order.archived_drawings.split(',') if order.archived_drawings else []
-    archived_drawings = [path.lstrip('/').replace('static/', '') for path in archived_drawings]
-
-    logger.info(f"Текущие чертежи для заказа {order_id}: {current_drawings}")
-    logger.info(f"Архивированные чертежи для заказа {order_id}: {archived_drawings}")
+    # Получаем архивированные чертежи
+    archived_drawings = db.query(models.Drawing).join(models.OrderDrawing).filter(
+        models.OrderDrawing.order_id == order_id,
+        models.Drawing.archived_at != None
+    ).all()
 
     return templates.TemplateResponse("drawing_history.html", {
         "request": request,
         "order": order,
-        "current_drawings": current_drawings,
-        "archived_drawings": archived_drawings
+        "current_drawings": [drawing.file_path for drawing in current_drawings],
+        "archived_drawings": [drawing.file_path for drawing in archived_drawings]
     })
 
 @app.get("/api/orders")

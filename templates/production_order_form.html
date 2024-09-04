@@ -193,7 +193,7 @@
             <div id="existingDrawings">
                 <h3>Существующие чертежи:</h3>
                 {% for drawing in drawings %}
-                <div class="drawing-preview" data-path="{{ drawing.file_path }}">
+                <div class="drawing-preview" data-id="{{ drawing.id }}">
                     <a href="{{ url_for('static', path=drawing.file_path) }}" target="_blank">
                         <img src="{{ url_for('static', path=drawing.file_path) }}" alt="Чертеж">
                     </a>
@@ -224,171 +224,181 @@
         <a href="{{ url_for('read_root') }}" class="button">Вернуться на главную страницу</a>
 
         <script>
-            $(document).ready(function() {
-            let deletedDrawings = [];
-            let selectedFiles = new DataTransfer();
+         $(document).ready(function() {
+             let deletedDrawings = [];
+             let selectedFiles = new DataTransfer();
 
-            $.datepicker.setDefaults($.datepicker.regional["ru"]);
+             $.datepicker.setDefaults($.datepicker.regional["ru"]);
 
-            $("#desired_production_date_start, #desired_production_date_end").datepicker({
-            dateFormat: "dd.mm.yy",
-            changeMonth: true,
-            changeYear: true
-            });
+             $("#desired_production_date_start, #desired_production_date_end").datepicker({
+                 dateFormat: "dd.mm.yy",
+                 changeMonth: true,
+                 changeYear: true
+             });
 
-            $('#drawing_files').change(function(e) {
-            let files = e.target.files;
-            for (let i = 0; i < files.length; i++) {
-            selectedFiles.items.add(files[i]);
-            }
-            updateFilePreviews();
-            });
+             $('#drawing_files').change(function(e) {
+                 let files = e.target.files;
+                 for (let i = 0; i < files.length; i++) {
+                     selectedFiles.items.add(files[i]);
+                 }
+                 updateFilePreviews();
+             });
 
-            function updateFilePreviews() {
-            $('#drawingPreviews').empty();
-            for (let i = 0; i < selectedFiles.files.length; i++) {
-            let file = selectedFiles.files[i];
-            let reader = new FileReader();
-            reader.onload = function(e) {
-            let preview = $('<div class="drawing-preview">')
-            .append($('<img>').attr('src', e.target.result).attr('alt', 'Чертеж').click(function() {
-            enlargeImage(e.target.result);
-            }))
-            .append($('<br>'))
-            .append(file.name)
-            .append($('<br>'))
-            .append($('<button type="button" class="delete-drawing">').text('Удалить').data('file', file.name));
-            $('#drawingPreviews').append(preview);
-            }
-            reader.readAsDataURL(file);
-            }
-            $('#drawing_files')[0].files = selectedFiles.files;
-            }
+             function updateFilePreviews() {
+                 $('#drawingPreviews').empty();
+                 for (let i = 0; i < selectedFiles.files.length; i++) {
+                     let file = selectedFiles.files[i];
+                     let reader = new FileReader();
+                     reader.onload = function(e) {
+                         let preview = $('<div class="drawing-preview">')
+                             .append($('<img>').attr('src', e.target.result).attr('alt', 'Чертеж').click(function() {
+                                 enlargeImage(e.target.result);
+                             }))
+                             .append($('<br>'))
+                             .append(file.name)
+                             .append($('<br>'))
+                             .append($('<button type="button" class="delete-new-drawing">').text('Удалить').data('file', file.name));
+                         $('#drawingPreviews').append(preview);
+                     }
+                     reader.readAsDataURL(file);
+                 }
+                 $('#drawing_files')[0].files = selectedFiles.files;
+             }
 
-            $(document).on('click', '.delete-drawing', function() {
-            let fileName = $(this).data('file');
-            let newFiles = new DataTransfer();
-            for (let i = 0; i < selectedFiles.files.length; i++) {
-            if (selectedFiles.files[i].name !== fileName) {
-            newFiles.items.add(selectedFiles.files[i]);
-            }
-            }
-            selectedFiles = newFiles;
-            updateFilePreviews();
-            });
+             $(document).on('click', '.delete-new-drawing', function() {
+                 let fileName = $(this).data('file');
+                 let newFiles = new DataTransfer();
+                 for (let i = 0; i < selectedFiles.files.length; i++) {
+                     if (selectedFiles.files[i].name !== fileName) {
+                         newFiles.items.add(selectedFiles.files[i]);
+                     }
+                 }
+                 selectedFiles = newFiles;
+                 updateFilePreviews();
+             });
 
-            $('#orderForm').submit(function(e) {
-            e.preventDefault();
-            $('#deletedDrawings').val(deletedDrawings.join(','));
+             // Обработка удаления существующих чертежей
+             $(document).on('click', '.delete-drawing', function() {
+                 let drawingId = $(this).data('id');
+                 deletedDrawings.push(drawingId);
+                 $(this).closest('.drawing-preview').hide();
+                 updateDeletedDrawingsField();
+             });
 
-            let formData = new FormData(this);
+             function updateDeletedDrawingsField() {
+                 $('#deletedDrawings').val(deletedDrawings.join(','));
+             }
 
-            $.ajax({
-            url: this.action,
-            type: 'POST',
-            data: formData,
-            processData: false,
-            contentType: false,
-            success: function(response) {
-            window.location.href = '/production_orders';
-            },
-            error: function(xhr, status, error) {
-            console.error('Error:', error);
-            alert('Произошла ошибка при отправке формы. Пожалуйста, попробуйте еще раз.');
-            }
-            });
-            });
-            });
+             $('#orderForm').submit(function(e) {
+                 e.preventDefault();
+                 updateDeletedDrawingsField();
 
-            // Вспомогательный класс для создания нового FileList
-            function FileListItems(files) {
-            var b = new ClipboardEvent("").clipboardData || new DataTransfer();
-            for (var i = 0, len = files.length; i < len; i++) b.items.add(files[i]);
-            return b.files;
-            }
+                 let formData = new FormData(this);
 
-            function printDrawing(drawingPath) {
-            const printWindow = window.open('', '_blank');
-            printWindow.document.write(`
+                 $.ajax({
+                     url: this.action,
+                     type: 'POST',
+                     data: formData,
+                     processData: false,
+                     contentType: false,
+                     success: function(response) {
+                         if (response.message === "Order updated successfully") {
+                             window.location.href = '/production_orders';
+                         } else {
+                             alert('Произошла ошибка при обновлении заказа. Пожалуйста, попробуйте еще раз.');
+                         }
+                     },
+                     error: function(xhr, status, error) {
+                         console.error('Error:', error);
+                         alert('Произошла ошибка при отправке формы. Пожалуйста, попробуйте еще раз.');
+                     }
+                 });
+             });
+
+             function printDrawing(drawingPath) {
+                 const printWindow = window.open('', '_blank');
+                 printWindow.document.write(`
             <!DOCTYPE html>
             <html>
                 <head>
                     <title>Печать чертежа</title>
                     <style>
-                     body {
-                         margin: 0;
-                         padding: 0;
-                         display: flex;
-                         justify-content: center;
-                         align-items: center;
-                         height: 100vh;
-                     }
-                     img {
-                         max-width: 100%;
-                         max-height: 100%;
-                         object-fit: contain;
-                     }
-                     @media print {
-                         @page {
-                             size: auto;
-                             margin: 0mm;
-                         }
-                         body {
-                             margin: 0;
-                         }
-                     }
+                        body {
+                            margin: 0;
+                            padding: 0;
+                            display: flex;
+                            justify-content: center;
+                            align-items: center;
+                            height: 100vh;
+                        }
+                        img {
+                            max-width: 100%;
+                            max-height: 100%;
+                            object-fit: contain;
+                        }
+                        @media print {
+                            @page {
+                                size: auto;
+                                margin: 0mm;
+                            }
+                            body {
+                                margin: 0;
+                            }
+                        }
                     </style>
                 </head>
                 <body>
                     <img src="${drawingPath}" alt="Чертеж для печати" id="print-content">
                     <script>
-                     window.onload = function() {
-                         setTimeout(function() {
-                             window.print();
-                             window.onafterprint = function() {
-                                 window.close();
-                             };
-                         }, 1000);
-                     };
-                     <\/script>
-                     </body>
-                     </html>
-                     `);
-                     printWindow.document.close();
-                     }
+                        window.onload = function() {
+                            setTimeout(function() {
+                                window.print();
+                                window.onafterprint = function() {
+                                    window.close();
+                                };
+                            }, 1000);
+                        };
+                    <\/script>
+                </body>
+            </html>
+                 `);
+                 printWindow.document.close();
+             }
 
-                     document.querySelector('#orderForm').addEventListener('submit', function(e) {
-                         const files = document.getElementById('drawing_files').files;
-                         const maxSize = 20 * 1024 * 1024; // 20 MB
-                         let totalSize = 0;
+             // Проверка размера файлов перед отправкой формы
+             $('#orderForm').on('submit', function(e) {
+                 const files = document.getElementById('drawing_files').files;
+                 const maxSize = 20 * 1024 * 1024; // 20 MB
+                 let totalSize = 0;
 
-                         for (let i = 0; i < files.length; i++) {
-                             totalSize += files[i].size;
-                         }
+                 for (let i = 0; i < files.length; i++) {
+                     totalSize += files[i].size;
+                 }
 
-                         if (totalSize > maxSize) {
-                             e.preventDefault();
-                             alert('Общий размер файлов превышает 20 MB. Пожалуйста, выберите файлы меньшего размера.');
-                         }
-                     });
+                 if (totalSize > maxSize) {
+                     e.preventDefault();
+                     alert('Общий размер файлов превышает 20 MB. Пожалуйста, выберите файлы меньшего размера.');
+                 }
+             });
 
-                     // Функция для увеличения изображения
-                     function enlargeImage(src) {
-                         $('#enlargedImage').attr('src', src);
-                         $('#imageModal').css('display', 'block');
-                     }
+             // Функция для увеличения изображения
+             function enlargeImage(src) {
+                 $('#enlargedImage').attr('src', src);
+                 $('#imageModal').css('display', 'block');
+             }
 
-                     // Закрытие модального окна
-                     $('.close').click(function() {
-                         $('#imageModal').css('display', 'none');
-                     });
+             // Закрытие модального окна
+             $('.close').click(function() {
+                 $('#imageModal').css('display', 'none');
+             });
 
-                     // Закрытие модального окна при клике вне изображения
-                     $(window).click(function(e) {
-                         if (e.target.id === 'imageModal') {
-                             $('#imageModal').css('display', 'none');
-                         }
-                     });
-                    </script>
+             // Закрытие модального окна при клике вне изображения
+             $(window).click(function(e) {
+                 if (e.target.id === 'imageModal') {
+                     $('#imageModal').css('display', 'none');
+                 }
+             });
+         });
+        </script>
                 </body>
             </html>
