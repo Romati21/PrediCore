@@ -311,13 +311,28 @@ async def create_order(
             mime_type = file_utils.get_mime_type(processed_file['path'])
 
             drawing = repository.get_or_create_drawing(db, processed_file['hash'], processed_file['path'], processed_file['filename'], file_size, mime_type)
-            repository.create_order_drawing(db, new_order.id, drawing.id)
+            order_drawing = repository.create_order_drawing(db, new_order.id, drawing.id)
+
+            # Генерируем QR-код
+            qr_data = f"Order: {new_order.order_number}, Drawing: {drawing.file_name}"
+            qr_image = generate_qr_code_with_text(qr_data, new_order.order_number)
+
+            # Создаем директорию для QR-кодов, если она не существует
+            os.makedirs(QR_CODE_DIR, exist_ok=True)
+
+            # Сохраняем QR-код
+            qr_filename = f"qr_code_{new_order.id}_{drawing.id}.png"
+            qr_path = os.path.join(QR_CODE_DIR, qr_filename)
+            qr_image.save(qr_path, format="PNG")
+
+            # Обновляем путь к QR-коду в базе данных
+            order_drawing.qr_code_path = os.path.relpath(qr_path, 'static')
 
         new_order.drawing_link = ','.join([file['path'] for file in processed_files])
         db.commit()
 
-        # Отправляем уведомление об обновлении (если эта функциональность нужна)
-        # await manager.broadcast(json.dumps({"action": "new_order", "order": new_order.to_dict()}))
+        # Отправляем уведомление о новом заказе
+        await manager.broadcast(json.dumps({"action": "new_order", "order": new_order.to_dict()}))
 
         return JSONResponse(content={
             "message": "Order created successfully", 
@@ -342,7 +357,7 @@ async def update_production_order(
     request: Request,
     order_id: int,
     drawing_designation: str = Form(...),
-    drawing_files: List[UploadFile] = File([]),
+    drawing_files: List[UploadFile] = File(None),
     quantity: int = Form(...),
     desired_production_date_start: str = Form(...),
     desired_production_date_end: str = Form(...),
@@ -383,53 +398,49 @@ async def update_production_order(
                         drawing.archived_at = func.now()
 
         # Обработка новых чертежей
-        for drawing_file in drawing_files:
-            if drawing_file.filename:
-                processed_file = await process_uploaded_file(drawing_file)
+        if drawing_files:
+            for drawing_file in drawing_files:
+                if drawing_file.filename:
+                    processed_file = await process_uploaded_file(drawing_file)
 
-                # Проверяем, существует ли уже чертеж с таким хешем
-                existing_drawing = repository.get_drawing_by_hash(db, processed_file['hash'])
+                    # Проверяем, существует ли уже чертеж с таким хешем
+                    existing_drawing = repository.get_drawing_by_hash(db, processed_file['hash'])
 
-                if existing_drawing:
-                    # Если чертеж существует, обновляем дату последнего использования
-                    repository.update_drawing_last_used(db, existing_drawing.id)
-                    drawing = existing_drawing
-                else:
-                    # Если чертеж новый, создаем новую запись
-                    drawing = repository.create_drawing(
-                        db,
-                        processed_file['hash'],
-                        processed_file['path'],
-                        processed_file['filename'],
-                        processed_file['file_size'],
-                        processed_file['mime_type']
-                    )
+                    if existing_drawing:
+                        # Если чертеж существует, обновляем дату последнего использования
+                        repository.update_drawing_last_used(db, existing_drawing.id)
+                        drawing = existing_drawing
+                    else:
+                        # Если чертеж новый, создаем новую запись
+                        drawing = repository.create_drawing(
+                            db,
+                            processed_file['hash'],
+                            processed_file['path'],
+                            processed_file['filename'],
+                            processed_file['file_size'],
+                            processed_file['mime_type']
+                        )
 
-                # Создаем связь между заказом и чертежом, если она еще не существует
-                existing_order_drawing = db.query(models.OrderDrawing).filter(
-                    models.OrderDrawing.order_id == order.id,
-                    models.OrderDrawing.drawing_id == drawing.id
-                ).first()
+                    # Создаем связь между заказом и чертежом, если она еще не существует
+                    existing_order_drawing = db.query(models.OrderDrawing).filter(
+                        models.OrderDrawing.order_id == order.id,
+                        models.OrderDrawing.drawing_id == drawing.id
+                    ).first()
 
-                if not existing_order_drawing:
-                    order_drawing = repository.create_order_drawing(db, order.id, drawing.id)
+                    if not existing_order_drawing:
+                        order_drawing = repository.create_order_drawing(db, order.id, drawing.id)
 
-                    # Генерируем QR-код
-                    qr_data = f"Order: {order.order_number}, Drawing: {drawing.file_name}"
-                    qr_image = generate_qr_code_with_text(qr_data, order.order_number)
+                        # Генерируем QR-код
+                        qr_data = f"Order: {order.order_number}, Drawing: {drawing.file_name}"
+                        qr_image = generate_qr_code_with_text(qr_data, order.order_number)
 
-                    # Создаем директорию для QR-кодов, если она не существует
-                    os.makedirs(QR_CODE_DIR, exist_ok=True)
+                        # Сохраняем QR-код
+                        qr_filename = f"qr_code_{order.id}_{drawing.id}.png"
+                        qr_path = os.path.join(QR_CODE_DIR, qr_filename)
+                        qr_image.save(qr_path, format="PNG")
 
-                    # Генерируем имя файла и путь для QR-кода
-                    qr_filename = f"qr_code_{order.id}_{drawing.id}.png"
-                    qr_path = os.path.join(QR_CODE_DIR, qr_filename)
-
-                    # Сохраняем QR-код как файл
-                    qr_image.save(qr_path, format="PNG")
-
-                    # Обновляем путь к QR-коду в базе данных (относительный путь)
-                    order_drawing.qr_code_path = os.path.relpath(qr_path, 'static')
+                        # Обновляем путь к QR-коду в базе данных
+                        order_drawing.qr_code_path = os.path.relpath(qr_path, 'static')
 
         # Сохраняем изменения
         db.commit()
