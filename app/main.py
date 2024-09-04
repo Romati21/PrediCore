@@ -20,10 +20,8 @@ import qrcode, os, math, time, shutil, io, base64, re, random, string, logging, 
 import aiofiles
 from pydantic import ValidationError
 import os
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import logging
-from fastapi import UploadFile, HTTPException
-from fastapi.responses import JSONResponse
 import hashlib
 import mimetypes
 
@@ -38,6 +36,7 @@ STATIC_DIR = "static"
 TEMP_DIR = os.path.join(STATIC_DIR, "temp")
 UPLOAD_DIR = os.path.join(STATIC_DIR, "uploads")
 DRAWINGS_DIR = os.path.join(STATIC_DIR, "drawings")
+QR_CODE_DIR = os.path.join(STATIC_DIR, "qr_codes")
 MODIFIED_DRAWINGS_DIR = os.path.join(STATIC_DIR, "modified_drawings")
 ARCHIVED_DRAWINGS_DIR = os.path.join(STATIC_DIR, "archived_drawings")
 
@@ -48,7 +47,8 @@ DIRECTORIES_TO_CREATE = [
     DRAWINGS_DIR,
     MODIFIED_DRAWINGS_DIR,
     ARCHIVED_DRAWINGS_DIR,
-    UPLOAD_DIR
+    UPLOAD_DIR,
+    QR_CODE_DIR
 ]
 
 # Создаем все необходимые директории
@@ -154,18 +154,31 @@ def generate_qr_code_with_text(data, text):
     img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
 
     draw = ImageDraw.Draw(img)
-    font = ImageFont.truetype(str(FONT_PATH), 280)  # Выберите шрифт и размер
-    text_width, text_height = draw.textbbox((0, 0), text, font=font)[2:] # Используем textbbox
+    font = ImageFont.truetype(str(FONT_PATH), 150)  # Выберите шрифт и размер
+    text_width, text_height = draw.textbbox((0, 0), text, font=font)[2:]  # Используем textbbox
     text_x = (img.width - text_width) // 2
-    text_y = (img.height - text_height) // 2 - 10  #  Сдвигаем текст вверх
-    draw.text((text_x + 1, text_y + 1), text, font=font, fill="black") #  Черная тень
-    draw.text((text_x, text_y), text, font=font, fill="white")        #  Белый текст
+    text_y = (img.height - text_height) // 2 - 10  # Сдвигаем текст вверх
+    draw.text((text_x + 1, text_y + 1), text, font=font, fill="black")  # Черная тень
+    draw.text((text_x, text_y), text, font=font, fill="white")  # Белый текст
 
-    buffer = io.BytesIO()
-    img.save(buffer, format="PNG")
-    img_str = base64.b64encode(buffer.getvalue()).decode()
-    return f"data:image/png;base64,{img_str}"
+    return img
 
+def save_qr_code(order, drawing):
+    qr_data = f"Order: {order.order_number}, Drawing: {drawing.file_name}"
+    qr_image = generate_qr_code_with_text(qr_data, order.order_number)
+
+    # Создаем директорию для QR-кодов, если она не существует
+    os.makedirs(QR_CODE_DIR, exist_ok=True)
+
+    # Генерируем имя файла QR-кода
+    qr_filename = f"qr_code_{order.id}_{drawing.id}.png"
+    qr_path = os.path.join(QR_CODE_DIR, qr_filename)
+
+    # Сохраняем изображение
+    qr_image.save(qr_path, format="PNG")
+
+    # Возвращаем относительный путь к файлу QR-кода
+    return os.path.relpath(qr_path, 'static')
 
 @app.get("/print_order/{order_id}", response_class=HTMLResponse)
 async def print_order(request: Request, order_id: int, db: Session = Depends(get_db)):
@@ -373,10 +386,10 @@ async def update_production_order(
         for drawing_file in drawing_files:
             if drawing_file.filename:
                 processed_file = await process_uploaded_file(drawing_file)
-                
+
                 # Проверяем, существует ли уже чертеж с таким хешем
                 existing_drawing = repository.get_drawing_by_hash(db, processed_file['hash'])
-                
+
                 if existing_drawing:
                     # Если чертеж существует, обновляем дату последнего использования
                     repository.update_drawing_last_used(db, existing_drawing.id)
@@ -391,31 +404,32 @@ async def update_production_order(
                         processed_file['file_size'],
                         processed_file['mime_type']
                     )
-                
+
                 # Создаем связь между заказом и чертежом, если она еще не существует
                 existing_order_drawing = db.query(models.OrderDrawing).filter(
                     models.OrderDrawing.order_id == order.id,
                     models.OrderDrawing.drawing_id == drawing.id
                 ).first()
-                
+
                 if not existing_order_drawing:
                     order_drawing = repository.create_order_drawing(db, order.id, drawing.id)
-                    
+
                     # Генерируем QR-код
                     qr_data = f"Order: {order.order_number}, Drawing: {drawing.file_name}"
-                    qr_code_base64 = generate_qr_code_with_text(qr_data, order.order_number)
-                    
-                    # Сохраняем QR-код
+                    qr_image = generate_qr_code_with_text(qr_data, order.order_number)
+
+                    # Создаем директорию для QR-кодов, если она не существует
+                    os.makedirs(QR_CODE_DIR, exist_ok=True)
+
+                    # Генерируем имя файла и путь для QR-кода
                     qr_filename = f"qr_code_{order.id}_{drawing.id}.png"
-                    qr_path = os.path.join(UPLOAD_DIR, qr_filename)
-                    
-                    # Декодируем base64 и сохраняем как файл
-                    qr_image_data = base64.b64decode(qr_code_base64.split(',')[1])
-                    with open(qr_path, 'wb') as f:
-                        f.write(qr_image_data)
-                    
-                    # Обновляем путь к QR-коду в базе данных
-                    order_drawing.qr_code_path = qr_path
+                    qr_path = os.path.join(QR_CODE_DIR, qr_filename)
+
+                    # Сохраняем QR-код как файл
+                    qr_image.save(qr_path, format="PNG")
+
+                    # Обновляем путь к QR-коду в базе данных (относительный путь)
+                    order_drawing.qr_code_path = os.path.relpath(qr_path, 'static')
 
         # Сохраняем изменения
         db.commit()
@@ -912,37 +926,21 @@ async def edit_production_order(request: Request, order_id: int, db: Session = D
     # Загружаем связанные чертежи с дополнительной информацией
     order_drawings = db.query(models.OrderDrawing).filter(models.OrderDrawing.order_id == order_id).all()
     drawings_info = []
-    drawing_paths = []
 
     for order_drawing in order_drawings:
         drawing = db.query(models.Drawing).filter(models.Drawing.id == order_drawing.drawing_id).first()
         if drawing and not drawing.archived_at:
-            # Убираем 'static/' из начала пути, если оно есть
-            file_path = drawing.file_path[7:] if drawing.file_path.startswith('static/') else drawing.file_path
             drawings_info.append({
                 "id": drawing.id,
                 "file_name": drawing.file_name,
-                "file_path": file_path,
+                "file_path": drawing.file_path.replace('static/', ''),
                 "qr_code_path": order_drawing.qr_code_path
             })
-            drawing_paths.append(file_path)
-
-    # Если order.drawing_link все еще используется, добавляем эти пути тоже
-    if order.drawing_link:
-        additional_paths = order.drawing_link.split(',')
-        additional_paths = [path.lstrip('/').replace('static/', '') for path in additional_paths]
-        drawing_paths.extend(additional_paths)
-
-    # Удаляем дубликаты
-    drawing_paths = list(dict.fromkeys(drawing_paths))
-
-    logger.info(f"Пути к чертежам для заказа {order_id}: {drawing_paths}")
 
     return templates.TemplateResponse("production_order_form.html", {
         "request": request,
         "order": order,
-        "drawings": drawings_info,
-        "drawing_paths": drawing_paths
+        "drawings": drawings_info
     })
 
 @app.get("/drawing_history/{order_id}")
