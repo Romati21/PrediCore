@@ -384,12 +384,6 @@ async def update_production_order(
         order.metal_delivery_date = metal_delivery_date
         order.notes = notes
 
-        # Получаем текущие активные чертежи заказа
-        current_drawings = db.query(models.OrderDrawing).filter(
-            models.OrderDrawing.order_id == order.id,
-            models.Drawing.archived_at == None
-        ).join(models.Drawing).all()
-
         # Обработка удаления чертежей
         if delete_drawing:
             delete_drawing_list = delete_drawing.split(',')
@@ -399,7 +393,6 @@ async def update_production_order(
                     models.OrderDrawing.drawing_id == int(drawing_id)
                 ).first()
                 if order_drawing:
-                    db.delete(order_drawing)
                     drawing = db.query(models.Drawing).filter(models.Drawing.id == int(drawing_id)).first()
                     if drawing:
                         drawing.archived_at = func.now()
