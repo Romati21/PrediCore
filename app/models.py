@@ -33,6 +33,7 @@ class OrderDrawing(Base):
     qr_code_path = Column(String(255), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
     order = relationship("ProductionOrder", back_populates="drawings")
+    drawing = relationship("Drawing")  # Добавляем это отношение
 
 class Inventory(Base):
     __tablename__ = "inventory"

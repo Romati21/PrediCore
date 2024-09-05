@@ -384,6 +384,12 @@ async def update_production_order(
         order.metal_delivery_date = metal_delivery_date
         order.notes = notes
 
+        # Получаем текущие активные чертежи заказа
+        current_drawings = db.query(models.OrderDrawing).filter(
+            models.OrderDrawing.order_id == order.id,
+            models.Drawing.archived_at == None
+        ).join(models.Drawing).all()
+
         # Обработка удаления чертежей
         if delete_drawing:
             delete_drawing_list = delete_drawing.split(',')
@@ -405,30 +411,38 @@ async def update_production_order(
             for drawing_file in drawing_files:
                 if drawing_file.filename:
                     processed_file = await process_uploaded_file(drawing_file)
-
+                    
                     file_size = os.path.getsize(processed_file['path'])
                     mime_type = file_utils.get_mime_type(processed_file['path'])
 
                     drawing = repository.get_or_create_drawing(db, processed_file['hash'], processed_file['path'], processed_file['filename'], file_size, mime_type)
-
+                    
                     existing_order_drawing = db.query(models.OrderDrawing).filter(
                         models.OrderDrawing.order_id == order.id,
                         models.OrderDrawing.drawing_id == drawing.id
                     ).first()
-
+                    
                     if not existing_order_drawing:
                         order_drawing = repository.create_order_drawing(db, order.id, drawing.id)
-
+                        
                         qr_data = f"Order: {order.order_number}, Drawing: {drawing.file_name}"
                         qr_image = generate_qr_code_with_text(qr_data, order.order_number)
 
                         qr_filename = f"qr_code_{order.id}_{drawing.id}.png"
                         qr_path = os.path.join(QR_CODE_DIR, qr_filename)
                         qr_image.save(qr_path, format="PNG")
-
+                        
                         order_drawing.qr_code_path = os.path.relpath(qr_path, 'static')
-
+                    
                     logger.info(f"Drawing {drawing.file_name} added/updated for order {order_id}")
+
+        # Обновляем список активных чертежей
+        active_drawings = db.query(models.OrderDrawing).filter(
+            models.OrderDrawing.order_id == order.id,
+            models.Drawing.archived_at == None
+        ).join(models.Drawing).all()
+
+        order.drawing_link = ','.join([order_drawing.drawing.file_path for order_drawing in active_drawings])
 
         db.commit()
         logger.info(f"Заказ успешно обновлен: {order.id}")
@@ -438,7 +452,7 @@ async def update_production_order(
         await manager.broadcast(update_message)
 
         return JSONResponse(content={
-            "message": "Order updated successfully",
+            "message": "Order updated successfully", 
             "order_id": order.id,
             "order_number": order.order_number
         }, status_code=200)

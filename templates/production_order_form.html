@@ -300,15 +300,17 @@
                      processData: false,
                      contentType: false,
                      success: function(response) {
-                         if (response.message === "Order created successfully") {
+                         if (response.message === "Order updated successfully") {
+                             // Перенаправляем пользователя на страницу со списком заказов
                              window.location.href = '/production_orders';
                          } else {
-                             alert('Произошла ошибка при создании заказа. Пожалуйста, попробуйте еще раз.');
+                             // Если сообщение об успехе не получено, выводим полученное сообщение
+                             alert(response.message || 'Заказ обновлен, но произошла неизвестная ошибка.');
                          }
                      },
                      error: function(xhr, status, error) {
                          console.error('Error:', error);
-                         alert('Произошла ошибка при отправке формы. Пожалуйста, попробуйте еще раз.');
+                         alert('Произошла ошибка при обновлении заказа. Пожалуйста, попробуйте еще раз.');
                      }
                  });
              });
