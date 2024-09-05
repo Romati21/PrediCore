@@ -291,8 +291,6 @@
 
              $('#orderForm').submit(function(e) {
                  e.preventDefault();
-                 updateDeletedDrawingsField();
-
                  let formData = new FormData(this);
 
                  $.ajax({
@@ -302,10 +300,10 @@
                      processData: false,
                      contentType: false,
                      success: function(response) {
-                         if (response.message === "Order updated successfully") {
+                         if (response.message === "Order created successfully") {
                              window.location.href = '/production_orders';
                          } else {
-                             alert('Произошла ошибка при обновлении заказа. Пожалуйста, попробуйте еще раз.');
+                             alert('Произошла ошибка при создании заказа. Пожалуйста, попробуйте еще раз.');
                          }
                      },
                      error: function(xhr, status, error) {

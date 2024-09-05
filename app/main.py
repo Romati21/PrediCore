@@ -353,7 +353,6 @@ async def create_order(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
-
 @app.post("/edit_production_order/{order_id}")
 async def update_production_order(
     request: Request,
@@ -397,7 +396,9 @@ async def update_production_order(
                     db.delete(order_drawing)
                     drawing = db.query(models.Drawing).filter(models.Drawing.id == int(drawing_id)).first()
                     if drawing:
-                        drawing.archived_at = func.now()  # Теперь эта строка должна работать
+                        drawing.archived_at = func.now()
+                        db.add(drawing)
+                        logger.info(f"Drawing {drawing_id} archived for order {order_id}")
 
         # Обработка новых чертежей
         if drawing_files:
@@ -405,25 +406,11 @@ async def update_production_order(
                 if drawing_file.filename:
                     processed_file = await process_uploaded_file(drawing_file)
 
-                    # Проверяем, существует ли уже чертеж с таким хешем
-                    existing_drawing = repository.get_drawing_by_hash(db, processed_file['hash'])
+                    file_size = os.path.getsize(processed_file['path'])
+                    mime_type = file_utils.get_mime_type(processed_file['path'])
 
-                    if existing_drawing:
-                        # Если чертеж существует, обновляем дату последнего использования
-                        repository.update_drawing_last_used(db, existing_drawing.id)
-                        drawing = existing_drawing
-                    else:
-                        # Если чертеж новый, создаем новую запись
-                        drawing = repository.create_drawing(
-                            db,
-                            processed_file['hash'],
-                            processed_file['path'],
-                            processed_file['filename'],
-                            processed_file['file_size'],
-                            processed_file['mime_type']
-                        )
+                    drawing = repository.get_or_create_drawing(db, processed_file['hash'], processed_file['path'], processed_file['filename'], file_size, mime_type)
 
-                    # Создаем связь между заказом и чертежом, если она еще не существует
                     existing_order_drawing = db.query(models.OrderDrawing).filter(
                         models.OrderDrawing.order_id == order.id,
                         models.OrderDrawing.drawing_id == drawing.id
@@ -432,29 +419,26 @@ async def update_production_order(
                     if not existing_order_drawing:
                         order_drawing = repository.create_order_drawing(db, order.id, drawing.id)
 
-                        # Генерируем QR-код
                         qr_data = f"Order: {order.order_number}, Drawing: {drawing.file_name}"
                         qr_image = generate_qr_code_with_text(qr_data, order.order_number)
 
-                        # Сохраняем QR-код
                         qr_filename = f"qr_code_{order.id}_{drawing.id}.png"
                         qr_path = os.path.join(QR_CODE_DIR, qr_filename)
                         qr_image.save(qr_path, format="PNG")
 
-                        # Обновляем путь к QR-коду в базе данных
                         order_drawing.qr_code_path = os.path.relpath(qr_path, 'static')
 
-        # Сохраняем изменения
+                    logger.info(f"Drawing {drawing.file_name} added/updated for order {order_id}")
+
         db.commit()
         logger.info(f"Заказ успешно обновлен: {order.id}")
 
-        # Отправляем уведомление об обновлении
         update_message = json.dumps({"action": "update_order", "order": order.to_dict()})
         logger.info(f"Отправка уведомления об обновлении: {update_message}")
         await manager.broadcast(update_message)
 
         return JSONResponse(content={
-            "message": "Order updated successfully", 
+            "message": "Order updated successfully",
             "order_id": order.id,
             "order_number": order.order_number
         }, status_code=200)
@@ -755,6 +739,8 @@ def archive_old_drawing(drawing_path):
         logger.warning(f"Чертеж не найден для архивации: {full_path}")
         return None
 
+
+
 @app.get("/view_drawing/{order_id}")
 async def view_drawing(request: Request, order_id: int, db: Session = Depends(get_db)):
     order = db.query(models.ProductionOrder).filter(models.ProductionOrder.id == order_id).first()
@@ -762,24 +748,18 @@ async def view_drawing(request: Request, order_id: int, db: Session = Depends(ge
         raise HTTPException(status_code=404, detail="Заказ не найден")
 
     # Получаем только актуальные (не архивированные) чертежи
-    current_drawings = db.query(models.Drawing).join(models.OrderDrawing).filter(
+    current_drawings = db.query(models.Drawing, models.OrderDrawing.qr_code_path).join(models.OrderDrawing).filter(
         models.OrderDrawing.order_id == order_id,
         models.Drawing.archived_at == None
     ).all()
 
     drawing_info = []
-    for drawing in current_drawings:
-        order_drawing = db.query(models.OrderDrawing).filter(
-            models.OrderDrawing.order_id == order_id,
-            models.OrderDrawing.drawing_id == drawing.id
-        ).first()
-        
+    for drawing, qr_code_path in current_drawings:
         # Удаляем префикс "static/" из пути к файлу, если он есть
         file_path = drawing.file_path
         if file_path.startswith("static/"):
             file_path = file_path[7:]
         
-        qr_code_path = order_drawing.qr_code_path if order_drawing else None
         if qr_code_path and qr_code_path.startswith("static/"):
             qr_code_path = qr_code_path[7:]
 
@@ -789,173 +769,13 @@ async def view_drawing(request: Request, order_id: int, db: Session = Depends(ge
             "qr_code_path": qr_code_path
         })
 
+    logger.info(f"Drawing info: {drawing_info}")
+
     return templates.TemplateResponse("view_drawing.html", {
         "request": request,
         "order": order,
         "drawings": drawing_info
     })
-
-
-@app.post("/view_drawing/{order_id}")
-async def view_drawing(
-    request: Request,
-    order_id: int,
-    db: Session = Depends(get_db),
-    new_drawing: UploadFile = File(None)
-):
-    try:
-        order = db.query(models.ProductionOrder).filter(models.ProductionOrder.id == order_id).first()
-        if not order:
-            raise HTTPException(status_code=404, detail="Заказ не найден")
-
-        logger.info(f"Обработка заказа №{order.order_number}")
-
-        if new_drawing:
-            # Обработка нового загруженного чертежа
-            drawing_filename = f"{order.order_number}_{new_drawing.filename}"
-            drawing_path = os.path.join(DRAWINGS_DIR, drawing_filename)
-            with open(drawing_path, "wb") as buffer:
-                buffer.write(await new_drawing.read())
-            logger.info(f"Загружен новый чертеж: {drawing_path}")
-        else:
-            # Использование существующего чертежа
-            drawing_path = order.drawing_link.lstrip('/')
-
-        logger.info(f"Путь к чертежу: {drawing_path}")
-
-        if not os.path.exists(drawing_path):
-            # Попытка найти чертеж в архиве
-            archived_drawing_path = f"static/archived_drawings/archived_{os.path.basename(drawing_path)}"
-            if os.path.exists(archived_drawing_path):
-                drawing_path = archived_drawing_path
-                logger.info(f"Найден архивированный чертеж: {drawing_path}")
-            else:
-                raise HTTPException(status_code=404, detail="Чертеж не найден")
-
-        # Проверяем, существует ли уже обработанный чертеж
-        modified_drawings_dir = MODIFIED_DRAWINGS_DIR
-        mtime = safe_get_mtime(drawing_path)
-        if mtime is None:
-            raise HTTPException(status_code=404, detail="Чертеж не найден")
-
-        upload_date = datetime.fromtimestamp(mtime).strftime('%d.%m.%Y')
-        modified_drawing_filename = f"{order.order_number}_{upload_date}.png"
-        modified_drawing_path = os.path.join(modified_drawings_dir, modified_drawing_filename)
-#############
-        if os.path.exists(modified_drawing_path) and not new_drawing:
-            logger.info(f"Обработанный чертеж уже существует: {modified_drawing_path}")
-            with Image.open(modified_drawing_path) as img:
-                original_size = new_size = img.size
-        else:
-            logger.info("Создание нового обработанного чертежа")
-            # Стандартизация изображения
-            standardized_drawing_path, original_size, new_size = standardize_image(drawing_path)
-            if original_size == (0, 0) or new_size == (0, 0):
-                logger.error(f"Не удалось стандартизировать изображение: {drawing_path}")
-                raise HTTPException(status_code=500, detail="Ошибка обработки изображения")
-
-            with Image.open(standardized_drawing_path).convert('RGBA') as img:
-                # Генерация QR-кода
-                qr_code_data = f"Заказ-наряд №: {order.order_number}\n" \
-                               f"Дата публикации: {order.publication_date.strftime('%d.%m.%Y')}\n" \
-                               f"Обозначение чертежа: {order.drawing_designation}\n" \
-                               f"Количество: {order.quantity}\n" \
-                               f"Желательная дата изготовления: {order.desired_production_date_start.strftime('%d.%m.%Y')} - {order.desired_production_date_end.strftime('%d.%m.%Y')}\n" \
-                               f"Необходимый материал: {order.required_material}\n" \
-                               f"Срок поставки металла: {order.metal_delivery_date}\n" \
-                               f"Примечания: {order.notes}"
-
-                qr_code_img = generate_qr_code_with_text(qr_code_data, order.order_number)
-                qr_code = Image.open(io.BytesIO(base64.b64decode(qr_code_img.split(',')[1])))
-
-                # Определяем ориентацию чертежа
-                is_landscape = img.width > img.height
-
-                # Вычисляем размер QR-кода
-                if is_landscape:
-                    qr_size_ratio = 0.14  # 14% от высоты изображения для альбомной ориентации
-                    qr_size_px = int(img.height * qr_size_ratio)
-                else:
-                    qr_size_ratio = 0.2  # 20% от ширины изображения для портретной ориентации
-                    qr_size_px = int(img.width * qr_size_ratio)
-
-                # Создаем новое изображение с белым фоном для QR-кода
-                qr_background = Image.new('RGBA', (qr_size_px, qr_size_px), (255, 255, 255, 255))
-                qr_code = qr_code.resize((qr_size_px, qr_size_px), Image.LANCZOS).convert('RGBA')
-
-                # Наложение QR-кода на белый фон
-                qr_background.alpha_composite(qr_code)
-###################
-                # Вычисляем позицию для QR-кода (правый нижний угол с отступом)
-                offset_ratio = 0.015  # 1.5% от размера изображения
-                offset_px = int(img.width * offset_ratio)
-                qr_position = (img.width - qr_size_px - offset_px, img.height - qr_size_px - offset_px)
-
-                # Вставляем QR-код
-                img.alpha_composite(qr_background, qr_position)
-
-                # Добавляем дату загрузки
-                draw = ImageDraw.Draw(img)
-
-                # Используем TrueType шрифт
-                BASE_DIR = Path(__file__).resolve().parent
-                FONT_PATH = BASE_DIR / "static" / "fonts" / "CommitMonoNerdFont-Bold.otf"
-
-                # Вычисляем размер шрифта относительно размера изображения
-                if is_landscape:
-                    font_size_ratio = 0.30 # 30% от высоты изображения для альбомной ориентации
-                    font_size = int(img.height * font_size_ratio)
-                else:
-                    font_size_ratio = 0.39  # 39% от ширины изображения для портретной ориентации
-                    font_size = int(img.width * font_size_ratio)
-
-                # Устанавливаем минимальный и максимальный размер шрифта
-                min_font_size = 12
-                max_font_size = 96
-                font_size = max(min(font_size, max_font_size), min_font_size)
-
-                font = ImageFont.truetype(str(FONT_PATH), font_size)
-
-                # Вычисляем позицию для даты (левый нижний угол с отступом)
-                date_offset_ratio = 0.015  # 1.5% от размера изображения
-                date_offset_px = int(img.width * date_offset_ratio)
-
-                bbox = draw.textbbox((0, 0), f"{upload_date}", font=font)
-                text_width = bbox[2] - bbox[0]
-                text_height = bbox[3] - bbox[1]
-
-                date_position = (date_offset_px, img.height - text_height - date_offset_px)
-
-                # Рисуем текст с тенью для лучшей читаемости
-                shadow_color = (200, 200, 200)  # Светло-серый цвет для тени
-                draw.text((date_position[0]+1, date_position[1]+1), f"{upload_date}", font=font, fill=shadow_color)
-                draw.text(date_position, f"{upload_date}", font=font, fill=(0, 0, 0))
-##############
-                # Сохраняем модифицированное изображение
-                if not os.path.exists(modified_drawings_dir):
-                    os.makedirs(modified_drawings_dir)
-                img.save(modified_drawing_path, format='PNG')
-
-            # Если это новый чертеж, обновляем ссылку в базе данных
-            if new_drawing:
-                old_drawing_link = order.drawing_link
-                order.drawing_link = '/' + modified_drawing_path
-                db.commit()
-                logger.info(f"Обновлена ссылка на чертеж: с {old_drawing_link} на {order.drawing_link}")
-
-                # Архивируем старый чертеж, если он существует
-                if old_drawing_link:
-                    archived_path = archive_old_drawing(old_drawing_link.lstrip('/'))
-                    if archived_path:
-                        logger.info(f"Старый чертеж архивирован: {archived_path}")
-
-        return templates.TemplateResponse("view_drawing.html", {"request": request, "order": order, "drawing_path": "/" + modified_drawing_path})
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Ошибка при обработке чертежа: {str(e)}")
-        raise HTTPException(status_code=500, detail="Ошибка обработки чертежа")
 
 @app.get("/edit_production_order/{order_id}")
 async def edit_production_order(request: Request, order_id: int, db: Session = Depends(get_db)):
@@ -989,23 +809,39 @@ async def drawing_history(request: Request, order_id: int, db: Session = Depends
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
 
-    # Получаем текущие чертежи
-    current_drawings = db.query(models.Drawing).join(models.OrderDrawing).filter(
+    # Получаем актуальные чертежи
+    current_drawings = db.query(models.Drawing, models.OrderDrawing.qr_code_path).join(models.OrderDrawing).filter(
         models.OrderDrawing.order_id == order_id,
         models.Drawing.archived_at == None
     ).all()
 
     # Получаем архивированные чертежи
-    archived_drawings = db.query(models.Drawing).join(models.OrderDrawing).filter(
+    archived_drawings = db.query(models.Drawing, models.OrderDrawing.qr_code_path).join(models.OrderDrawing).filter(
         models.OrderDrawing.order_id == order_id,
         models.Drawing.archived_at != None
     ).all()
 
+    def process_drawings(drawings):
+        return [
+            {
+                "path": drawing.file_path[7:] if drawing.file_path.startswith("static/") else drawing.file_path,
+                "name": drawing.file_name,
+                "qr_code_path": qr_code_path[7:] if qr_code_path and qr_code_path.startswith("static/") else qr_code_path
+            }
+            for drawing, qr_code_path in drawings
+        ]
+
+    current_drawings_processed = process_drawings(current_drawings)
+    archived_drawings_processed = process_drawings(archived_drawings)
+
+    logger.info(f"Current drawings: {current_drawings_processed}")
+    logger.info(f"Archived drawings: {archived_drawings_processed}")
+
     return templates.TemplateResponse("drawing_history.html", {
         "request": request,
         "order": order,
-        "current_drawings": [drawing.file_path for drawing in current_drawings],
-        "archived_drawings": [drawing.file_path for drawing in archived_drawings]
+        "current_drawings": current_drawings_processed,
+        "archived_drawings": archived_drawings_processed
     })
 
 @app.get("/api/orders")

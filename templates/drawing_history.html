@@ -21,6 +21,10 @@
         .print-button {
             margin-top: 5px;
         }
+        .qr-code {
+            max-width: 100px;
+            max-height: 100px;
+        }
     </style>
 </head>
 <body>
@@ -28,32 +32,47 @@
 
     <h2>Текущие чертежи:</h2>
     <div class="drawing-container">
-    {% for path in current_drawings %}
+    {% for drawing in current_drawings %}
         <div class="drawing-item">
-            <a href="{{ url_for('static', path=path) }}" target="_blank">
-                <img src="{{ url_for('static', path=path) }}" alt="Чертеж">
+            <a href="/static/{{ drawing.path }}" target="_blank">
+                <img src="/static/{{ drawing.path }}" alt="Чертеж">
             </a>
-            <p>{{ path.split('/')[-1] }}</p>
-            <button class="print-button" onclick="printDrawing('{{ url_for('static', path=path) }}')">Печать</button>
+            <p>{{ drawing.name }}</p>
+            <button class="print-button" onclick="printDrawing('/static/{{ drawing.path }}')">Печать чертежа</button>
+            {% if drawing.qr_code_path %}
+            <br>
+            <a href="/static/{{ drawing.qr_code_path }}" target="_blank">
+                <img src="/static/{{ drawing.qr_code_path }}" alt="QR-код" class="qr-code">
+            </a>
+            <br>
+            <button class="print-button" onclick="printDrawing('/static/{{ drawing.qr_code_path }}')">Печать QR-кода</button>
+            {% endif %}
         </div>
     {% endfor %}
     </div>
 
     <h2>Архивированные чертежи:</h2>
     <div class="drawing-container">
-    {% for path in archived_drawings %}
+    {% for drawing in archived_drawings %}
         <div class="drawing-item">
-            <a href="{{ url_for('static', path=path) }}" target="_blank">
-                <img src="{{ url_for('static', path=path) }}" alt="Архивированный чертеж">
+            <a href="/static/{{ drawing.path }}" target="_blank">
+                <img src="/static/{{ drawing.path }}" alt="Архивированный чертеж">
             </a>
-            <p>{{ path.split('/')[-1] }}</p>
-            <button class="print-button" onclick="printDrawing('{{ url_for('static', path=path) }}')">Печать</button>
+            <p>{{ drawing.name }}</p>
+            <button class="print-button" onclick="printDrawing('/static/{{ drawing.path }}')">Печать чертежа</button>
+            {% if drawing.qr_code_path %}
+            <br>
+            <a href="/static/{{ drawing.qr_code_path }}" target="_blank">
+                <img src="/static/{{ drawing.qr_code_path }}" alt="QR-код" class="qr-code">
+            </a>
+            <br>
+            <button class="print-button" onclick="printDrawing('/static/{{ drawing.qr_code_path }}')">Печать QR-кода</button>
+            {% endif %}
         </div>
     {% endfor %}
     </div>
 
     <a href="{{ url_for('edit_production_order', order_id=order.id) }}">Вернуться к редактированию заказа</a>
-
     <script>
         function printDrawing(drawingPath) {
             const printWindow = window.open('', '_blank');
