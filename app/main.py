@@ -26,6 +26,8 @@ from PIL import Image, ImageDraw, ImageFont
 import logging
 import hashlib
 import mimetypes
+from app.utils.file_utils import get_file_path
+
 
 
 # Настройка логгирования
@@ -309,22 +311,23 @@ async def create_order(
             processed_file = await process_uploaded_file(drawing_file)
             processed_files.append(processed_file)
 
-            file_size = os.path.getsize(processed_file['path'])
-            mime_type = file_utils.get_mime_type(processed_file['path'])
-
-            drawing = repository.get_or_create_drawing(db, processed_file['hash'], processed_file['path'], processed_file['filename'], file_size, mime_type)
+            drawing = repository.get_or_create_drawing(
+                db,
+                processed_file['hash'],
+                processed_file['path'],
+                processed_file['filename'],
+                processed_file['file_size'],
+                processed_file['mime_type']
+            )
             order_drawing = repository.create_order_drawing(db, new_order.id, drawing.id)
 
             # Генерируем QR-код
             qr_data = f"Order: {new_order.order_number}, Drawing: {drawing.file_name}"
             qr_image = generate_qr_code_with_text(qr_data, new_order.order_number)
 
-            # Создаем директорию для QR-кодов, если она не существует
-            os.makedirs(QR_CODE_DIR, exist_ok=True)
-
             # Сохраняем QR-код
             qr_filename = f"qr_code_{new_order.id}_{drawing.id}.png"
-            qr_path = os.path.join(QR_CODE_DIR, qr_filename)
+            qr_path = get_file_path(hashlib.sha256(qr_filename.encode()).hexdigest(), ".png")
             qr_image.save(qr_path, format="PNG")
 
             # Обновляем путь к QR-коду в базе данных
@@ -404,29 +407,33 @@ async def update_production_order(
             for drawing_file in drawing_files:
                 if drawing_file.filename:
                     processed_file = await process_uploaded_file(drawing_file)
-                    
-                    file_size = os.path.getsize(processed_file['path'])
-                    mime_type = file_utils.get_mime_type(processed_file['path'])
 
-                    drawing = repository.get_or_create_drawing(db, processed_file['hash'], processed_file['path'], processed_file['filename'], file_size, mime_type)
-                    
+                    drawing = repository.get_or_create_drawing(
+                        db,
+                        processed_file['hash'],
+                        processed_file['path'],
+                        processed_file['filename'],
+                        processed_file['file_size'],
+                        processed_file['mime_type']
+                    )
+
                     existing_order_drawing = db.query(models.OrderDrawing).filter(
                         models.OrderDrawing.order_id == order.id,
                         models.OrderDrawing.drawing_id == drawing.id
                     ).first()
-                    
+
                     if not existing_order_drawing:
                         order_drawing = repository.create_order_drawing(db, order.id, drawing.id)
-                        
+
                         qr_data = f"Order: {order.order_number}, Drawing: {drawing.file_name}"
                         qr_image = generate_qr_code_with_text(qr_data, order.order_number)
 
                         qr_filename = f"qr_code_{order.id}_{drawing.id}.png"
-                        qr_path = os.path.join(QR_CODE_DIR, qr_filename)
+                        qr_path = get_file_path(hashlib.sha256(qr_filename.encode()).hexdigest(), ".png")
                         qr_image.save(qr_path, format="PNG")
-                        
+
                         order_drawing.qr_code_path = os.path.relpath(qr_path, 'static')
-                    
+
                     logger.info(f"Drawing {drawing.file_name} added/updated for order {order_id}")
 
         # Обновляем список активных чертежей
@@ -693,36 +700,33 @@ def safe_get_mtime(file_path):
 
 async def process_uploaded_file(file: UploadFile):
     try:
-        # Создаем временный файл
-        temp_file_path = os.path.join(TEMP_DIR, file.filename)
-        with open(temp_file_path, "wb") as buffer:
-            content = await file.read()
+        content = await file.read()
+        file_hash = hashlib.sha256(content).hexdigest()
+        file_extension = os.path.splitext(file.filename)[1]
+
+        final_path = get_file_path(file_hash, file_extension)
+
+        # Создаем директории, если они не существуют
+        os.makedirs(os.path.dirname(final_path), exist_ok=True)
+
+        # Сохраняем файл
+        with open(final_path, "wb") as buffer:
             buffer.write(content)
 
         # Стандартизируем изображение
-        standardized_path, original_size, new_size = standardize_image(temp_file_path)
+        standardized_path, original_size, new_size = standardize_image(final_path)
 
-        # Перемещаем стандартизированное изображение в папку uploads
-        final_path = os.path.join(UPLOAD_DIR, os.path.basename(standardized_path))
-        os.rename(standardized_path, final_path)
-
-        # Удаляем оригинальный файл
-        os.remove(temp_file_path)
-
-        # Вычисляем хэш файла
-        file_hash = calculate_file_hash(final_path)
-
-        # Получаем размер файла
-        file_size = os.path.getsize(final_path)
+        file_size = os.path.getsize(standardized_path)
+        mime_type = mimetypes.guess_type(standardized_path)[0] or 'application/octet-stream'
 
         return {
-            "filename": os.path.basename(final_path),
-            "path": final_path,
+            "filename": os.path.basename(standardized_path),
+            "path": standardized_path,
             "original_size": original_size,
             "new_size": new_size,
             "hash": file_hash,
             "file_size": file_size,
-            "mime_type": mimetypes.guess_type(final_path)[0] or 'application/octet-stream'
+            "mime_type": mime_type
         }
     except Exception as e:
         logger.error(f"Ошибка при обработке файла {file.filename}: {str(e)}")
