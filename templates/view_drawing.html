@@ -29,7 +29,7 @@
                 <img src="/static/{{ drawing.path }}" alt="Чертеж">
             </a>
             <p>{{ drawing.name }}</p>
-            <button class="print-button" onclick="printDrawing('/static/{{ drawing.path }}')">Печать чертежа</button>
+            <button class="print-button" onclick="printDrawingWithQR('{{ drawing.id }}', '{{ order.id }}')">Печать чертежа с QR-кодом</button>
             {% if drawing.qr_code_path %}
             <br>
             <a href="/static/{{ drawing.qr_code_path }}" target="_blank">
@@ -41,8 +41,155 @@
         </div>
         {% endfor %}
     </div>
-
     <script>
+
+    console.log('Order ID:', '{{ order.id }}');
+    console.log('Drawings:', JSON.parse('{{ drawings | tojson | safe }}'));
+
+     function printDrawingWithQR(drawingId, orderId) {
+         console.log(`Attempting to print drawing ${drawingId} for order ${orderId}`);
+
+         if (!drawingId || !orderId) {
+             console.error('drawingId or orderId is undefined');
+             alert('Ошибка: Недостаточно данных для печати чертежа');
+             return;
+         }
+
+         fetch(`/combine_drawing_with_qr/${orderId}/${drawingId}`)
+             .then(response => {
+                 if (!response.ok) {
+                     return response.text().then(text => {
+                         throw new Error(`HTTP error! status: ${response.status}, statusText: ${response.statusText}, body: ${text}`);
+                     });
+                 }
+                 return response.blob();
+             })
+             .then(blob => {
+                 const url = window.URL.createObjectURL(blob);
+                 const printWindow = window.open('', '_blank');
+                 if (printWindow === null) {
+                     // Если открытие нового окна заблокировано, показываем изображение в текущем окне
+                     const img = document.createElement('img');
+                     img.src = url;
+                     img.style.maxWidth = '100%';
+                     img.style.height = 'auto';
+
+                     const container = document.createElement('div');
+                     container.style.position = 'fixed';
+                     container.style.top = '0';
+                     container.style.left = '0';
+                     container.style.right = '0';
+                     container.style.bottom = '0';
+                     container.style.backgroundColor = 'rgba(0,0,0,0.8)';
+                     container.style.display = 'flex';
+                     container.style.justifyContent = 'center';
+                     container.style.alignItems = 'center';
+                     container.style.zIndex = '9999';
+
+                     const closeButton = document.createElement('button');
+                     closeButton.innerText = 'Закрыть';
+                     closeButton.style.position = 'absolute';
+                     closeButton.style.top = '10px';
+                     closeButton.style.right = '10px';
+
+                     const printButton = document.createElement('button');
+                     printButton.innerText = 'Печать';
+                     printButton.style.position = 'absolute';
+                     printButton.style.top = '10px';
+                     printButton.style.left = '10px';
+
+                     container.appendChild(img);
+                     container.appendChild(closeButton);
+                     container.appendChild(printButton);
+                     document.body.appendChild(container);
+
+                     closeButton.onclick = () => {
+                         document.body.removeChild(container);
+                     };
+
+                     printButton.onclick = () => {
+                         const printContent = window.open('', '_blank');
+                         printContent.document.write(`
+                        <html>
+                            <head>
+                                <title>Печать чертежа</title>
+                                <style>
+                                    body { margin: 0; }
+                                    img { max-width: 100%; height: auto; }
+                                </style>
+                            </head>
+                            <body>
+                                <img src="${url}" alt="Чертеж для печати">
+                                <script>
+                                    window.onload = function() {
+                                        setTimeout(function() {
+                                            window.print();
+                                            window.onafterprint = function() {
+                                                window.close();
+                                            };
+                                        }, 1000);
+                                    };
+                                <\/script>
+                            </body>
+                        </html>
+                         `);
+                         printContent.document.close();
+                     };
+                 } else {
+                     printWindow.document.write(`
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>Печать чертежа с QR-кодом</title>
+                        <style>
+                            body {
+                                margin: 0;
+                                padding: 0;
+                                display: flex;
+                                justify-content: center;
+                                align-items: center;
+                                height: 100vh;
+                            }
+                            img {
+                                max-width: 100%;
+                                max-height: 100%;
+                                object-fit: contain;
+                            }
+                            @media print {
+                                @page {
+                                    size: auto;
+                                    margin: 0mm;
+                                }
+                                body {
+                                    margin: 0;
+                                }
+                            }
+                        </style>
+                    </head>
+                    <body>
+                        <img src="${url}" alt="Чертеж для печати" id="print-content">
+                        <script>
+                            window.onload = function() {
+                                setTimeout(function() {
+                                    window.print();
+                                    window.onafterprint = function() {
+                                        window.close();
+                                    };
+                                }, 1000);
+                            };
+                        <\/script>
+                    </body>
+                    </html>
+                     `);
+                     printWindow.document.close();
+                 }
+             })
+             .catch(error => {
+                 console.error('Error:', error);
+                 alert('Произошла ошибка при подготовке чертежа к печати: ' + error.message);
+             });
+     }
+
         function printDrawing(drawingPath) {
             const printWindow = window.open('', '_blank');
             printWindow.document.write(`

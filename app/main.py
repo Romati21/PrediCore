@@ -1,8 +1,9 @@
 from fastapi import FastAPI, WebSocket, Depends, HTTPException, Request, Form, UploadFile, File, BackgroundTasks
 from app.utils import file_utils
 import asyncio
+import io
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.websockets import WebSocketDisconnect
 from sqlalchemy.orm import Session
@@ -464,6 +465,58 @@ async def update_production_order(
         raise HTTPException(status_code=500, detail=f"Ошибка при обновлении заказа: {str(e)}")
 
 
+@app.get("/combine_drawing_with_qr/{order_id}/{drawing_id}")
+async def combine_drawing_with_qr(order_id: int, drawing_id: int, db: Session = Depends(get_db)):
+    logger.info(f"Запрос на объединение чертежа с QR-кодом: order_id={order_id}, drawing_id={drawing_id}")
+    
+    try:
+        order = db.query(models.ProductionOrder).filter(models.ProductionOrder.id == order_id).first()
+        if not order:
+            logger.error(f"Заказ не найден: order_id={order_id}")
+            raise HTTPException(status_code=404, detail="Заказ не найден")
+
+        drawing = db.query(models.Drawing).filter(models.Drawing.id == drawing_id).first()
+        if not drawing:
+            logger.error(f"Чертеж не найден: drawing_id={drawing_id}")
+            raise HTTPException(status_code=404, detail="Чертеж не найден")
+
+        logger.info(f"Чертеж найден: {drawing.file_path}")
+
+        # Убираем лишний префикс 'static/', если он есть
+        drawing_path = drawing.file_path
+        if drawing_path.startswith("static/"):
+            drawing_path = drawing_path[7:]
+
+        # Формируем полный путь к файлу
+        full_path = os.path.join('static', drawing_path)
+        logger.info(f"Полный путь к чертежу: {full_path}")
+
+        # Здесь используем вашу функцию process_drawing
+        combined_image_path = process_drawing(full_path, order)
+        if not combined_image_path:
+            logger.error(f"Ошибка при объединении чертежа с QR-кодом: order_id={order_id}, drawing_id={drawing_id}")
+            raise HTTPException(status_code=500, detail="Ошибка при объединении чертежа с QR-кодом")
+
+        logger.info(f"Объединенный чертеж создан: {combined_image_path}")
+
+        # Открываем и отправляем объединенное изображение
+        with Image.open(combined_image_path) as img:
+            img_byte_arr = io.BytesIO()
+            img.save(img_byte_arr, format='PNG')
+            img_byte_arr.seek(0)
+
+        logger.info(f"Чертеж успешно объединен с QR-кодом: order_id={order_id}, drawing_id={drawing_id}")
+        return StreamingResponse(img_byte_arr, media_type="image/png")
+
+    except Exception as e:
+        logger.error(f"Неожиданная ошибка в combine_drawing_with_qr: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Неожиданная ошибка: {str(e)}")
+
+
+@app.get("/debug_combine/{order_id}/{drawing_id}")
+async def debug_combine(order_id: int, drawing_id: int):
+    return {"message": "Debug endpoint reached", "order_id": order_id, "drawing_id": drawing_id}
+
 def archive_drawing(drawing_path: str, order_number: str) -> str:
     try:
         logger.info(f"Попытка архивации чертежа: {drawing_path}")
@@ -527,7 +580,6 @@ def process_drawing(drawing_path: str, order: models.ProductionOrder) -> str:
     try:
         logger.info(f"Начало обработки чертежа: {drawing_path}")
 
-        # Проверяем существование файла
         if not os.path.exists(drawing_path):
             logger.error(f"Файл не найден: {drawing_path}")
             return None
@@ -535,7 +587,6 @@ def process_drawing(drawing_path: str, order: models.ProductionOrder) -> str:
         with Image.open(drawing_path).convert('RGBA') as img:
             logger.info(f"Изображение открыто успешно. Размер: {img.size}")
 
-            # Генерация QR-кода
             qr_code_data = f"Заказ-наряд №: {order.order_number}\n" \
                            f"Дата публикации: {order.publication_date.strftime('%d.%m.%Y')}\n" \
                            f"Обозначение чертежа: {order.drawing_designation}\n" \
@@ -549,7 +600,8 @@ def process_drawing(drawing_path: str, order: models.ProductionOrder) -> str:
             qr_code_img = generate_qr_code_with_text(qr_code_data, order.order_number)
             logger.info("QR-код сгенерирован")
 
-            qr_code = Image.open(io.BytesIO(base64.b64decode(qr_code_img.split(',')[1])))
+            # Предполагаем, что qr_code_img уже является объектом изображения
+            qr_code = qr_code_img.convert('RGBA')
             logger.info("QR-код изображение создано")
 
             # Определяем ориентацию чертежа
@@ -567,7 +619,7 @@ def process_drawing(drawing_path: str, order: models.ProductionOrder) -> str:
 
             # Создаем новое изображение с белым фоном для QR-кода
             qr_background = Image.new('RGBA', (qr_size_px, qr_size_px), (255, 255, 255, 255))
-            qr_code = qr_code.resize((qr_size_px, qr_size_px), Image.LANCZOS).convert('RGBA')
+            qr_code = qr_code.resize((qr_size_px, qr_size_px), Image.LANCZOS)
             logger.info("QR-код подготовлен для вставки")
 
             # Наложение QR-кода на белый фон
@@ -587,7 +639,6 @@ def process_drawing(drawing_path: str, order: models.ProductionOrder) -> str:
             # Добавляем дату загрузки
             draw = ImageDraw.Draw(img)
             upload_date = datetime.now().strftime('%d.%m.%Y')
-
             # Используем TrueType шрифт
             BASE_DIR = Path(__file__).resolve().parent
             FONT_PATH = BASE_DIR / "static" / "fonts" / "CommitMonoNerdFont-Bold.otf"
@@ -611,13 +662,7 @@ def process_drawing(drawing_path: str, order: models.ProductionOrder) -> str:
             img.save(processed_filepath, format='PNG')
             logger.info(f"Обработанный чертеж сохранен: {processed_filepath}")
 
-            # Проверяем, что файл действительно сохранился
-            if os.path.exists(processed_filepath):
-                logger.info(f"Файл успешно сохранен: {processed_filepath}")
-                return processed_filepath
-            else:
-                logger.error(f"Не удалось сохранить файл: {processed_filepath}")
-                return None
+            return processed_filepath
 
     except Exception as e:
         logger.error(f"Ошибка при обработке чертежа: {str(e)}", exc_info=True)
@@ -776,6 +821,7 @@ async def view_drawing(request: Request, order_id: int, db: Session = Depends(ge
             qr_code_path = qr_code_path[7:]
 
         drawing_info.append({
+            "id": drawing.id,  # Добавляем id чертежа
             "path": file_path,
             "name": drawing.file_name,
             "qr_code_path": qr_code_path
