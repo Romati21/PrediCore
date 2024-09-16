@@ -75,6 +75,7 @@ static_dir = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
+
 def get_db():
     db = SessionLocal()
     try:
@@ -794,18 +795,19 @@ async def edit_production_order(request: Request, order_id: int, db: Session = D
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
 
-    # Загружаем связанные чертежи с дополнительной информацией
     order_drawings = db.query(models.OrderDrawing).filter(models.OrderDrawing.order_id == order_id).all()
     drawings_info = []
-
     for order_drawing in order_drawings:
         drawing = db.query(models.Drawing).filter(models.Drawing.id == order_drawing.drawing_id).first()
         if drawing and not drawing.archived_at:
+            # Убедимся, что путь относительный и не начинается с 'static/'
+            file_path = drawing.file_path.replace('static/', '')
+            qr_code_path = order_drawing.qr_code_path.replace('static/', '') if order_drawing.qr_code_path else None
             drawings_info.append({
                 "id": drawing.id,
                 "file_name": drawing.file_name,
-                "file_path": drawing.file_path.replace('static/', ''),
-                "qr_code_path": order_drawing.qr_code_path
+                "file_path": file_path,
+                "qr_code_path": qr_code_path
             })
 
     return templates.TemplateResponse("production_order_form.html", {

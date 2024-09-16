@@ -194,16 +194,18 @@
                 <h3>Существующие чертежи:</h3>
                 {% for drawing in drawings %}
                 <div class="drawing-preview" data-id="{{ drawing.id }}">
-                    <a href="{{ url_for('static', path=drawing.file_path) }}" target="_blank">
-                        <img src="{{ url_for('static', path=drawing.file_path) }}" alt="Чертеж">
+                    <a href="/static/{{ drawing.file_path }}" target="_blank">
+                        <img src="/static/{{ drawing.file_path }}" alt="Чертеж">
                     </a>
                     <br>
                     {{ drawing.file_name }}
                     <br>
                     <button type="button" class="delete-drawing" data-id="{{ drawing.id }}">Удалить</button>
-                    <button type="button" class="print-drawing" onclick="printDrawing('{{ url_for('static', path=drawing.file_path) }}')">Печать</button>
                     {% if drawing.qr_code_path %}
-                    <a href="{{ url_for('static', path=drawing.qr_code_path) }}" target="_blank">Просмотр QR-кода</a>
+                    <br>
+                    <a href="/static/{{ drawing.qr_code_path }}" target="_blank">
+                        <img src="/static/{{ drawing.qr_code_path }}" alt="QR-код" style="max-width: 100px; max-height: 100px;">
+                    </a>
                     {% endif %}
                 </div>
                 {% endfor %}
@@ -315,55 +317,6 @@
                  });
              });
 
-             function printDrawing(drawingPath) {
-                 const printWindow = window.open('', '_blank');
-                 printWindow.document.write(`
-            <!DOCTYPE html>
-            <html>
-                <head>
-                    <title>Печать чертежа</title>
-                    <style>
-                        body {
-                            margin: 0;
-                            padding: 0;
-                            display: flex;
-                            justify-content: center;
-                            align-items: center;
-                            height: 100vh;
-                        }
-                        img {
-                            max-width: 100%;
-                            max-height: 100%;
-                            object-fit: contain;
-                        }
-                        @media print {
-                            @page {
-                                size: auto;
-                                margin: 0mm;
-                            }
-                            body {
-                                margin: 0;
-                            }
-                        }
-                    </style>
-                </head>
-                <body>
-                    <img src="${drawingPath}" alt="Чертеж для печати" id="print-content">
-                    <script>
-                        window.onload = function() {
-                            setTimeout(function() {
-                                window.print();
-                                window.onafterprint = function() {
-                                    window.close();
-                                };
-                            }, 1000);
-                        };
-                    <\/script>
-                </body>
-            </html>
-                 `);
-                 printWindow.document.close();
-             }
 
              // Проверка размера файлов перед отправкой формы
              $('#orderForm').on('submit', function(e) {
