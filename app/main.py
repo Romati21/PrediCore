@@ -480,33 +480,85 @@ async def combine_drawing_with_qr(order_id: int, drawing_id: int, db: Session = 
             logger.error(f"Чертеж не найден: drawing_id={drawing_id}")
             raise HTTPException(status_code=404, detail="Чертеж не найден")
 
-        logger.info(f"Чертеж найден: {drawing.file_path}")
+        order_drawing = db.query(models.OrderDrawing).filter(
+            models.OrderDrawing.order_id == order_id,
+            models.OrderDrawing.drawing_id == drawing_id
+        ).first()
+        if not order_drawing or not order_drawing.qr_code_path:
+            logger.error(f"QR-код не найден: order_id={order_id}, drawing_id={drawing_id}")
+            raise HTTPException(status_code=404, detail="QR-код не найден")
 
-        # Убираем лишний префикс 'static/', если он есть
+        # Логируем исходный путь к файлу чертежа
+        logger.info(f"Исходный путь к чертежу: {drawing.file_path}")
+
+        # Корректируем пути к файлам
         drawing_path = drawing.file_path
-        if drawing_path.startswith("static/"):
+        if drawing_path.startswith('static/'):
             drawing_path = drawing_path[7:]
+        drawing_parts = drawing_path.split('/')
+        if len(drawing_parts) > 1 and drawing_parts[0] in ['temp', 'ttemp', 'emp']:
+            drawing_parts[0] = 'temp'
+        drawing_path = os.path.join('static', *drawing_parts)
 
-        # Формируем полный путь к файлу
-        full_path = os.path.join('static', drawing_path)
-        logger.info(f"Полный путь к чертежу: {full_path}")
+        qr_code_path = order_drawing.qr_code_path
+        if qr_code_path.startswith('static/'):
+            qr_code_path = qr_code_path[7:]
+        qr_code_path = os.path.join('static', qr_code_path)
 
-        # Здесь используем вашу функцию process_drawing
-        combined_image_path = process_drawing(full_path, order)
-        if not combined_image_path:
-            logger.error(f"Ошибка при объединении чертежа с QR-кодом: order_id={order_id}, drawing_id={drawing_id}")
-            raise HTTPException(status_code=500, detail="Ошибка при объединении чертежа с QR-кодом")
+        logger.info(f"Скорректированный путь к чертежу: {drawing_path}")
+        logger.info(f"Путь к QR-коду: {qr_code_path}")
 
-        logger.info(f"Объединенный чертеж создан: {combined_image_path}")
+        # Проверяем существование файлов
+        if not os.path.exists(drawing_path):
+            logger.error(f"Файл чертежа не найден: {drawing_path}")
+            # Попробуем найти файл в корневой директории static
+            alternative_path = os.path.join('static', os.path.basename(drawing_path))
+            if os.path.exists(alternative_path):
+                logger.info(f"Найден альтернативный путь к чертежу: {alternative_path}")
+                drawing_path = alternative_path
+            else:
+                raise HTTPException(status_code=404, detail=f"Файл чертежа не найден: {drawing_path}")
 
-        # Открываем и отправляем объединенное изображение
-        with Image.open(combined_image_path) as img:
-            img_byte_arr = io.BytesIO()
-            img.save(img_byte_arr, format='PNG')
-            img_byte_arr.seek(0)
+        if not os.path.exists(qr_code_path):
+            logger.error(f"Файл QR-кода не найден: {qr_code_path}")
+            raise HTTPException(status_code=404, detail=f"Файл QR-кода не найден: {qr_code_path}")
+
+        # Открываем чертеж
+        with Image.open(drawing_path).convert('RGBA') as img:
+            # Открываем QR-код
+            with Image.open(qr_code_path).convert('RGBA') as qr_code:
+                # Определяем размеры и позицию для QR-кода
+                qr_size_ratio = 0.2 if img.width > img.height else 0.14
+                qr_size = int(min(img.width, img.height) * qr_size_ratio)
+                qr_code = qr_code.resize((qr_size, qr_size), Image.LANCZOS)
+
+                offset_ratio = 0.015
+                offset = int(min(img.width, img.height) * offset_ratio)
+                position = (img.width - qr_size - offset, img.height - qr_size - offset)
+
+                # Создаем новое изображение с белым фоном для QR-кода
+                qr_background = Image.new('RGBA', (qr_size, qr_size), (255, 255, 255, 255))
+                qr_background.paste(qr_code, (0, 0), qr_code)
+
+                # Вставляем QR-код на чертеж
+                img.alpha_composite(qr_background, position)
+
+                # Добавляем дату
+                draw = ImageDraw.Draw(img)
+                upload_date = datetime.now().strftime('%d.%m.%Y')
+                font_size = int(min(img.width, img.height) * 0.02)
+                font_path = os.path.join('static', 'fonts', 'CommitMonoNerdFont-Bold.otf')
+                font = ImageFont.truetype(font_path, font_size)
+                date_position = (offset, img.height - offset - font_size)
+                draw.text(date_position, upload_date, font=font, fill=(0, 0, 0))
+
+                # Сохраняем результат в буфер
+                buffer = io.BytesIO()
+                img.save(buffer, format='PNG')
+                buffer.seek(0)
 
         logger.info(f"Чертеж успешно объединен с QR-кодом: order_id={order_id}, drawing_id={drawing_id}")
-        return StreamingResponse(img_byte_arr, media_type="image/png")
+        return StreamingResponse(buffer, media_type="image/png")
 
     except Exception as e:
         logger.error(f"Неожиданная ошибка в combine_drawing_with_qr: {str(e)}", exc_info=True)
