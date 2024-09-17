@@ -528,7 +528,7 @@ async def combine_drawing_with_qr(order_id: int, drawing_id: int, db: Session = 
             # Открываем QR-код
             with Image.open(qr_code_path).convert('RGBA') as qr_code:
                 # Определяем размеры и позицию для QR-кода
-                qr_size_ratio = 0.2 if img.width > img.height else 0.14
+                qr_size_ratio = 0.25 if img.width > img.height else 0.2
                 qr_size = int(min(img.width, img.height) * qr_size_ratio)
                 qr_code = qr_code.resize((qr_size, qr_size), Image.LANCZOS)
 
@@ -546,7 +546,7 @@ async def combine_drawing_with_qr(order_id: int, drawing_id: int, db: Session = 
                 # Добавляем дату
                 draw = ImageDraw.Draw(img)
                 upload_date = datetime.now().strftime('%d.%m.%Y')
-                font_size = int(min(img.width, img.height) * 0.02)
+                font_size = int(min(img.width, img.height) * 0.03)
                 font_path = os.path.join('static', 'fonts', 'CommitMonoNerdFont-Bold.otf')
                 font = ImageFont.truetype(font_path, font_size)
                 date_position = (offset, img.height - offset - font_size)
@@ -920,13 +920,11 @@ async def drawing_history(request: Request, order_id: int, db: Session = Depends
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
 
-    # Получаем актуальные чертежи
     current_drawings = db.query(models.Drawing, models.OrderDrawing.qr_code_path).join(models.OrderDrawing).filter(
         models.OrderDrawing.order_id == order_id,
         models.Drawing.archived_at == None
     ).all()
 
-    # Получаем архивированные чертежи
     archived_drawings = db.query(models.Drawing, models.OrderDrawing.qr_code_path).join(models.OrderDrawing).filter(
         models.OrderDrawing.order_id == order_id,
         models.Drawing.archived_at != None
@@ -935,6 +933,7 @@ async def drawing_history(request: Request, order_id: int, db: Session = Depends
     def process_drawings(drawings):
         return [
             {
+                "id": drawing.id,
                 "path": drawing.file_path[7:] if drawing.file_path.startswith("static/") else drawing.file_path,
                 "name": drawing.file_name,
                 "qr_code_path": qr_code_path[7:] if qr_code_path and qr_code_path.startswith("static/") else qr_code_path
@@ -942,17 +941,11 @@ async def drawing_history(request: Request, order_id: int, db: Session = Depends
             for drawing, qr_code_path in drawings
         ]
 
-    current_drawings_processed = process_drawings(current_drawings)
-    archived_drawings_processed = process_drawings(archived_drawings)
-
-    logger.info(f"Current drawings: {current_drawings_processed}")
-    logger.info(f"Archived drawings: {archived_drawings_processed}")
-
     return templates.TemplateResponse("drawing_history.html", {
         "request": request,
         "order": order,
-        "current_drawings": current_drawings_processed,
-        "archived_drawings": archived_drawings_processed
+        "current_drawings": process_drawings(current_drawings),
+        "archived_drawings": process_drawings(archived_drawings)
     })
 
 @app.get("/api/orders")
