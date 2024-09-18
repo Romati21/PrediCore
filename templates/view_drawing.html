@@ -18,15 +18,25 @@
              max-height: 300px;
              object-fit: contain;
          }
+         .qr-code {
+             position: fixed;
+             bottom: 20mm;
+             right: 20mm;
+         }
+
+         .qr-code img {
+             width: 35mm;  /* Уменьшено с 25mm до 20mm */
+             height: 35mm; /* Уменьшено с 25mm до 20mm */
+             object-fit: contain;
+         }
         </style>
     </head>
     <body>
         <h1>Чертежи для заказа {{ order.order_number }}</h1>
 
         {% if order.qr_code_path %}
-        <div class="qr-code-container">
-            <img src="/static/{{ order.qr_code_path }}" alt="QR-код заказа" class="qr-code">
-            <button class="print-button" onclick="printDrawing('/static/{{ order.qr_code_path }}')">Печать QR-кода заказа</button>
+        <div class="qr-code">
+            <img src="/static/{{ order.qr_code_path }}" alt="QR-код заказа">
         </div>
         {% endif %}
 
