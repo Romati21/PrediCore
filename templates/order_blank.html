@@ -101,8 +101,11 @@
                 </tr>
             </table>
         </div>
-        <div id="qr-code">
-            <img src="{{ qr_code_img }}" alt="QR-код">
+        {% if order.qr_code_path %}
+        <div class="qr-code-container">
+            <img src="/static/{{ order.qr_code_path }}" alt="QR-код заказа" class="qr-code">
+            <button class="print-button" onclick="printDrawing('/static/{{ order.qr_code_path }}')">Печать QR-кода заказа</button>
         </div>
+        {% endif %}
     </body>
 </html>

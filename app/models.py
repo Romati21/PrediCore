@@ -30,7 +30,6 @@ class OrderDrawing(Base):
     id = Column(Integer, primary_key=True, index=True)
     order_id = Column(Integer, ForeignKey('production_orders.id'), nullable=False, index=True)
     drawing_id = Column(Integer, ForeignKey('drawings.id'), nullable=False)
-    qr_code_path = Column(String(255), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
     order = relationship("ProductionOrder", back_populates="drawings")
     drawing = relationship("Drawing")  # Добавляем это отношение
@@ -101,6 +100,7 @@ class ProductionOrder(Base):
     drawing_link = Column(String, nullable=True)
     archived_drawings = Column(String, nullable=True)
     drawings = relationship("OrderDrawing", back_populates="order")
+    qr_code_path = Column(String(255), nullable=True)
 
     def to_dict(self):
         return {
@@ -114,7 +114,8 @@ class ProductionOrder(Base):
             "desired_production_date_end": self.desired_production_date_end.isoformat() if self.desired_production_date_end else None,
             "required_material": self.required_material,
             "metal_delivery_date": self.metal_delivery_date,
-            "notes": self.notes
+            "notes": self.notes,
+            "qr_code_path": self.qr_code_path  # Добавлено в словарь
         }
 
 # Добавим обратную связь в модель OrderDrawing
