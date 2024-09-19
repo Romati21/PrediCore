@@ -1,8 +1,8 @@
-"""Add qr_code_path to ProductionOrder
+"""current_database_state
 
-Revision ID: 7e0632ab7fa4
-Revises: 5b58309a5231
-Create Date: 2024-09-18 13:30:53.306739
+Revision ID: 65a677c50224
+Revises: aa03f5e92c32
+Create Date: 2024-09-19 14:37:10.411729
 
 """
 from typing import Sequence, Union
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '7e0632ab7fa4'
-down_revision: Union[str, None] = '5b58309a5231'
+revision: str = '65a677c50224'
+down_revision: Union[str, None] = 'aa03f5e92c32'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
