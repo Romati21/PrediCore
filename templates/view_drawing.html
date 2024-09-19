@@ -37,6 +37,7 @@
         {% if order.qr_code_path %}
         <div class="qr-code">
             <img src="/static/{{ order.qr_code_path }}" alt="QR-код заказа">
+            <button onclick="printQRCode('/static/{{ order.qr_code_path }}')">Печать QR-кода</button>
         </div>
         {% endif %}
 
@@ -47,63 +48,55 @@
                     <img src="/static/{{ drawing.path }}" alt="Чертеж">
                 </a>
                 <p>{{ drawing.name }}</p>
-                <button onclick="printDrawingWithQR('{{ drawing.id }}')">Печать чертежа с QR-кодом</button>
+                <button onclick="printDrawingWithQR('{{ order.id }}', '{{ drawing.id }}')">Печать чертежа с QR-кодом</button>
             </div>
             {% endfor %}
         </div>
         <script>
-
-         console.log('Order ID:', '{{ order.id }}');
-         console.log('Drawings:', JSON.parse('{{ drawings | tojson | safe }}'));
-
-         function printDrawingWithQR(drawingId) {
-             const printWindow = window.open(`/print_drawing/${order.id}/${drawingId}`, '_blank');
-             printWindow.onload = function() {
-                 printWindow.print();
-             }
+         function printDrawingWithQR(orderId, drawingId) {
+             fetch(`/combine_drawing_with_qr/${orderId}/${drawingId}`)
+                 .then(response => {
+                     if (!response.ok) {
+                         return response.text().then(text => {
+                             throw new Error(`HTTP error! status: ${response.status}, statusText: ${response.statusText}, body: ${text}`);
+                         });
+                     }
+                     return response.blob();
+                 })
+                 .then(blob => {
+                     const url = window.URL.createObjectURL(blob);
+                     printImage(url);
+                 })
+                 .catch(error => {
+                     console.error('Error:', error);
+                     alert('Произошла ошибка при подготовке чертежа к печати: ' + error.message);
+                 });
          }
 
-         function printDrawing(drawingPath) {
+         function printQRCode(qrCodePath) {
+             printImage(qrCodePath);
+         }
+
+         function printImage(imagePath) {
              const printWindow = window.open('', '_blank');
              printWindow.document.write(`
                 <!DOCTYPE html>
                 <html>
                 <head>
-                    <title>Печать чертежа</title>
+                    <title>Печать</title>
                     <style>
-                        body {
-                            margin: 0;
-                            padding: 0;
-                            display: flex;
-                            justify-content: center;
-                            align-items: center;
-                            height: 100vh;
-                        }
-                        img {
-                            max-width: 100%;
-                            max-height: 100%;
-                            object-fit: contain;
-                        }
-                        @media print {
-                            @page {
-                                size: auto;
-                                margin: 0mm;
-                            }
-                            body {
-                                margin: 0;
-                            }
-                        }
+                        body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }
+                        img { max-width: 100%; max-height: 100%; object-fit: contain; }
+                        @media print { @page { size: auto; margin: 0mm; } body { margin: 0; } }
                     </style>
                 </head>
                 <body>
-                    <img src="${drawingPath}" alt="Чертеж для печати" id="print-content">
+                    <img src="${imagePath}" alt="Изображение для печати" id="print-content">
                     <script>
                         window.onload = function() {
                             setTimeout(function() {
                                 window.print();
-                                window.onafterprint = function() {
-                                    window.close();
-                                };
+                                window.onafterprint = function() { window.close(); };
                             }, 1000);
                         };
                     <\/script>

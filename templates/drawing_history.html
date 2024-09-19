@@ -33,7 +33,7 @@
         {% if order.qr_code_path %}
         <div class="qr-code-container">
             <img src="/static/{{ order.qr_code_path }}" alt="QR-код заказа" class="qr-code">
-            <button class="print-button" onclick="printDrawing('/static/{{ order.qr_code_path }}')">Печать QR-кода заказа</button>
+            <button class="print-button" onclick="printQRCode('/static/{{ order.qr_code_path }}')">Печать QR-кода заказа</button>
         </div>
         {% endif %}
 
@@ -45,7 +45,7 @@
                     <img src="/static/{{ drawing.path }}" alt="Чертеж">
                 </a>
                 <p>{{ drawing.name }}</p>
-                <button class="print-button" onclick="printDrawingWithQR('{{ drawing.id }}', '{{ order.id }}')">Печать чертежа с QR-кодом</button>
+                <button class="print-button" onclick="printDrawingWithQR('{{ order.id }}', '{{ drawing.id }}')">Печать чертежа с QR-кодом</button>
             </div>
             {% endfor %}
         </div>
@@ -58,14 +58,13 @@
                     <img src="/static/{{ drawing.path }}" alt="Архивированный чертеж">
                 </a>
                 <p>{{ drawing.name }}</p>
-                <button class="print-button" onclick="printDrawingWithQR('{{ drawing.id }}', '{{ order.id }}')">Печать чертежа с QR-кодом</button>
+                <button class="print-button" onclick="printDrawingWithQR('{{ order.id }}', '{{ drawing.id }}')">Печать чертежа с QR-кодом</button>
             </div>
             {% endfor %}
         </div>
-
         <a href="{{ url_for('edit_production_order', order_id=order.id) }}">Вернуться к редактированию заказа</a>
         <script>
-         function printDrawingWithQR(drawingId, orderId) {
+         function printDrawingWithQR(orderId, drawingId) {
              fetch(`/combine_drawing_with_qr/${orderId}/${drawingId}`)
                  .then(response => {
                      if (!response.ok) {
@@ -77,53 +76,7 @@
                  })
                  .then(blob => {
                      const url = window.URL.createObjectURL(blob);
-                     const printWindow = window.open('', '_blank');
-                     printWindow.document.write(`
-                        <!DOCTYPE html>
-                        <html>
-                        <head>
-                            <title>Печать чертежа с QR-кодом</title>
-                            <style>
-                                body {
-                                    margin: 0;
-                                    padding: 0;
-                                    display: flex;
-                                    justify-content: center;
-                                    align-items: center;
-                                    height: 100vh;
-                                }
-                                img {
-                                    max-width: 100%;
-                                    max-height: 100%;
-                                    object-fit: contain;
-                                }
-                                @media print {
-                                    @page {
-                                        size: auto;
-                                        margin: 0mm;
-                                    }
-                                    body {
-                                        margin: 0;
-                                    }
-                                }
-                            </style>
-                        </head>
-                        <body>
-                            <img src="${url}" alt="Чертеж для печати" id="print-content">
-                            <script>
-                                window.onload = function() {
-                                    setTimeout(function() {
-                                        window.print();
-                                        window.onafterprint = function() {
-                                            window.close();
-                                        };
-                                    }, 1000);
-                                };
-                            <\/script>
-                        </body>
-                        </html>
-                     `);
-                     printWindow.document.close();
+                     printImage(url);
                  })
                  .catch(error => {
                      console.error('Error:', error);
@@ -131,47 +84,30 @@
                  });
          }
 
-         function printDrawing(drawingPath) {
+         function printQRCode(qrCodePath) {
+             printImage(qrCodePath);
+         }
+
+         function printImage(imagePath) {
              const printWindow = window.open('', '_blank');
              printWindow.document.write(`
                 <!DOCTYPE html>
                 <html>
                 <head>
-                    <title>Печать чертежа</title>
+                    <title>Печать</title>
                     <style>
-                        body {
-                            margin: 0;
-                            padding: 0;
-                            display: flex;
-                            justify-content: center;
-                            align-items: center;
-                            height: 100vh;
-                        }
-                        img {
-                            max-width: 100%;
-                            max-height: 100%;
-                            object-fit: contain;
-                        }
-                        @media print {
-                            @page {
-                                size: auto;
-                                margin: 0mm;
-                            }
-                            body {
-                                margin: 0;
-                            }
-                        }
+                        body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }
+                        img { max-width: 100%; max-height: 100%; object-fit: contain; }
+                        @media print { @page { size: auto; margin: 0mm; } body { margin: 0; } }
                     </style>
                 </head>
                 <body>
-                    <img src="${drawingPath}" alt="Чертеж для печати" id="print-content">
+                    <img src="${imagePath}" alt="Изображение для печати" id="print-content">
                     <script>
                         window.onload = function() {
                             setTimeout(function() {
                                 window.print();
-                                window.onafterprint = function() {
-                                    window.close();
-                                };
+                                window.onafterprint = function() { window.close(); };
                             }, 1000);
                         };
                     <\/script>

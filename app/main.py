@@ -28,6 +28,8 @@ import logging
 import hashlib
 import mimetypes
 from app.utils.file_utils import get_file_path
+import shutil
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 
 
@@ -115,6 +117,21 @@ def calculate_file_hash(file_path):
 async def read_root(request: Request):
     return templates.TemplateResponse("form.html", {"request": request})
 
+
+scheduler = AsyncIOScheduler()
+
+@scheduler.scheduled_job("cron", hour=3)  # Запускать каждый день в 3 часа ночи
+async def clean_temp_folder():
+    try:
+        shutil.rmtree(TEMP_DIR)
+        os.makedirs(TEMP_DIR)
+        logger.info("Временная папка успешно очищена")
+    except Exception as e:
+        logger.error(f"Ошибка при очистке временной папки: {str(e)}")
+
+scheduler.start()
+
+
 @app.post("/submit")
 async def submit_data(batch_number: str = Form(...), part_number: str = Form(...), quantity: int = Form(...), db: Session = Depends(get_db)):
     inventory_item = repository.create_inventory(db, batch_number, part_number, quantity)
@@ -160,7 +177,7 @@ def generate_qr_code_with_text(data, text):
     img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
 
     draw = ImageDraw.Draw(img)
-    font = ImageFont.truetype(str(FONT_PATH), 140)  # Выберите шрифт и размер
+    font = ImageFont.truetype(str(FONT_PATH), 110)  # Выберите шрифт и размер
     text_width, text_height = draw.textbbox((0, 0), text, font=font)[2:]  # Используем textbbox
     text_x = (img.width - text_width) // 2
     text_y = (img.height - text_height) // 2 - 10  # Сдвигаем текст вверх
@@ -475,13 +492,14 @@ async def combine_drawing_with_qr(order_id: int, drawing_id: int, db: Session = 
             logger.error(f"QR-код не найден для заказа: order_id={order_id}")
             raise HTTPException(status_code=404, detail="QR-код не найден")
 
+        # Удаляем проверку qr_code_path для OrderDrawing
         order_drawing = db.query(models.OrderDrawing).filter(
             models.OrderDrawing.order_id == order_id,
             models.OrderDrawing.drawing_id == drawing_id
         ).first()
-        if not order_drawing or not order_drawing.qr_code_path:
-            logger.error(f"QR-код не найден: order_id={order_id}, drawing_id={drawing_id}")
-            raise HTTPException(status_code=404, detail="QR-код не найден")
+        if not order_drawing:
+            logger.error(f"Связь заказа и чертежа не найдена: order_id={order_id}, drawing_id={drawing_id}")
+            raise HTTPException(status_code=404, detail="Связь заказа и чертежа не найдена")
 
         # Логируем исходный путь к файлу чертежа
         logger.info(f"Исходный путь к чертежу: {drawing.file_path}")
@@ -742,13 +760,8 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 async def standardize_image(image_path, target_dpi=300, max_size=(5000, 5000)):
     try:
-        base_name = os.path.basename(image_path)
-        standardized_path = os.path.join(TEMP_DIR, f"{base_name}_standardized.png")
-
-        if os.path.exists(standardized_path):
-            async with aiofiles.open(standardized_path, "rb") as f:
-                img = Image.open(io.BytesIO(await f.read()))
-                return str(standardized_path), img.size, img.size
+        # Определяем новый путь для стандартизированного изображения
+        standardized_path = image_path  # Перезаписываем оригинальный файл
 
         async with aiofiles.open(image_path, "rb") as f:
             img = Image.open(io.BytesIO(await f.read()))
@@ -794,28 +807,23 @@ def safe_get_mtime(file_path):
 
 async def process_uploaded_file(file: UploadFile):
     try:
-        file_hash = hashlib.sha256()
-        file_size = 0
-        chunk_size = 8192  # 8KB chunks
-
-        while chunk := await file.read(chunk_size):
-            file_hash.update(chunk)
-            file_size += len(chunk)
-
-        file_hash = file_hash.hexdigest()
+        content = await file.read()
+        file_hash = hashlib.sha256(content).hexdigest()
         file_extension = os.path.splitext(file.filename)[1]
 
         final_path = get_file_path(file_hash, file_extension)
 
+        # Создаем директории, если они не существуют
         os.makedirs(os.path.dirname(final_path), exist_ok=True)
 
-        await file.seek(0)
-        async with aiofiles.open(final_path, "wb") as buffer:
-            while chunk := await file.read(chunk_size):
-                await buffer.write(chunk)
+        # Сохраняем файл
+        with open(final_path, "wb") as buffer:
+            buffer.write(content)
 
+        # Стандартизируем изображение
         standardized_path, original_size, new_size = await standardize_image(final_path)
 
+        file_size = os.path.getsize(standardized_path)
         mime_type = mimetypes.guess_type(standardized_path)[0] or 'application/octet-stream'
 
         return {
