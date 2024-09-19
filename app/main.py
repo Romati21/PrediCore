@@ -177,7 +177,7 @@ def generate_qr_code_with_text(data, text):
     img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
 
     draw = ImageDraw.Draw(img)
-    font = ImageFont.truetype(str(FONT_PATH), 110)  # Выберите шрифт и размер
+    font = ImageFont.truetype(str(FONT_PATH), 100)  # Выберите шрифт и размер
     text_width, text_height = draw.textbbox((0, 0), text, font=font)[2:]  # Используем textbbox
     text_x = (img.width - text_width) // 2
     text_y = (img.height - text_height) // 2 - 10  # Сдвигаем текст вверх
