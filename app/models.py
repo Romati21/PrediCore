@@ -30,8 +30,9 @@ class OrderDrawing(Base):
     id = Column(Integer, primary_key=True, index=True)
     order_id = Column(Integer, ForeignKey('production_orders.id'), nullable=False, index=True)
     drawing_id = Column(Integer, ForeignKey('drawings.id'), nullable=False)
-    qr_code_path = Column(String(255), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
+    order = relationship("ProductionOrder", back_populates="drawings")
+    drawing = relationship("Drawing")  # Добавляем это отношение
 
 class Inventory(Base):
     __tablename__ = "inventory"
@@ -88,20 +89,18 @@ class ProductionOrder(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     order_number = Column(String, unique=True, index=True)
-    publication_date = Column(Date)
-    drawings = relationship("OrderDrawing", back_populates="order")
-    drawing_designation = Column(String)
-    drawing_link = Column(String, nullable=True)
-    archived_drawings = Column(String, nullable=True)  # Новое поле для архивированных чертежей
-    quantity = Column(Integer)
-    desired_production_date_start = Column(Date)
-    desired_production_date_end = Column(Date)
-    required_material = Column(String)
+    publication_date = Column(Date, nullable=False)
+    drawing_designation = Column(String, nullable=False)
+    quantity = Column(Integer, nullable=False)
+    desired_production_date_start = Column(Date, nullable=False)
+    desired_production_date_end = Column(Date, nullable=False)
+    required_material = Column(String, nullable=False)
     metal_delivery_date = Column(String)
     notes = Column(String, nullable=True)
-
-    # def update_drawing_link(self, new_link: str):
-    #     self.drawing_link = new_link
+    drawing_link = Column(String, nullable=True)
+    archived_drawings = Column(String, nullable=True)
+    drawings = relationship("OrderDrawing", back_populates="order")
+    qr_code_path = Column(String(255), nullable=True)
 
     def to_dict(self):
         return {
@@ -115,7 +114,8 @@ class ProductionOrder(Base):
             "desired_production_date_end": self.desired_production_date_end.isoformat() if self.desired_production_date_end else None,
             "required_material": self.required_material,
             "metal_delivery_date": self.metal_delivery_date,
-            "notes": self.notes
+            "notes": self.notes,
+            "qr_code_path": self.qr_code_path  # Добавлено в словарь
         }
 
 # Добавим обратную связь в модель OrderDrawing

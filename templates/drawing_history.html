@@ -1,109 +1,121 @@
 <!DOCTYPE html>
 <html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>История чертежей для заказа {{ order.order_number }}</title>
-    <style>
-        .drawing-container {
-            display: flex;
-            flex-wrap: wrap;
-        }
-        .drawing-item {
-            margin: 10px;
-            text-align: center;
-        }
-        .drawing-item img {
-            max-width: 200px;
-            max-height: 200px;
-            cursor: pointer;
-        }
-        .print-button {
-            margin-top: 5px;
-        }
-    </style>
-</head>
-<body>
-    <h1>История чертежей для заказа {{ order.order_number }}</h1>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>История чертежей для заказа {{ order.order_number }}</title>
+        <style>
+         .drawing-container {
+             display: flex;
+             flex-wrap: wrap;
+         }
+         .drawing-item {
+             margin: 10px;
+             text-align: center;
+         }
+         .drawing-item img {
+             max-width: 200px;
+             max-height: 200px;
+             cursor: pointer;
+         }
+         .print-button {
+             margin-top: 5px;
+         }
+         .qr-code {
+             max-width: 100px;
+             max-height: 100px;
+         }
+        </style>
+    </head>
+    <body>
+        <h1>История чертежей для заказа {{ order.order_number }}</h1>
 
-    <h2>Текущие чертежи:</h2>
-    <div class="drawing-container">
-    {% for path in current_drawings %}
-        <div class="drawing-item">
-            <a href="{{ url_for('static', path=path) }}" target="_blank">
-                <img src="{{ url_for('static', path=path) }}" alt="Чертеж">
-            </a>
-            <p>{{ path.split('/')[-1] }}</p>
-            <button class="print-button" onclick="printDrawing('{{ url_for('static', path=path) }}')">Печать</button>
+        {% if order.qr_code_path %}
+        <div class="qr-code-container">
+            <img src="/static/{{ order.qr_code_path }}" alt="QR-код заказа" class="qr-code">
+            <button class="print-button" onclick="printQRCode('/static/{{ order.qr_code_path }}')">Печать QR-кода заказа</button>
         </div>
-    {% endfor %}
-    </div>
+        {% endif %}
 
-    <h2>Архивированные чертежи:</h2>
-    <div class="drawing-container">
-    {% for path in archived_drawings %}
-        <div class="drawing-item">
-            <a href="{{ url_for('static', path=path) }}" target="_blank">
-                <img src="{{ url_for('static', path=path) }}" alt="Архивированный чертеж">
-            </a>
-            <p>{{ path.split('/')[-1] }}</p>
-            <button class="print-button" onclick="printDrawing('{{ url_for('static', path=path) }}')">Печать</button>
+        <h2>Текущие чертежи:</h2>
+        <div class="drawing-container">
+            {% for drawing in current_drawings %}
+            <div class="drawing-item">
+                <a href="/static/{{ drawing.path }}" target="_blank">
+                    <img src="/static/{{ drawing.path }}" alt="Чертеж">
+                </a>
+                <p>{{ drawing.name }}</p>
+                <button class="print-button" onclick="printDrawingWithQR('{{ order.id }}', '{{ drawing.id }}')">Печать чертежа с QR-кодом</button>
+            </div>
+            {% endfor %}
         </div>
-    {% endfor %}
-    </div>
 
-    <a href="{{ url_for('edit_production_order', order_id=order.id) }}">Вернуться к редактированию заказа</a>
+        <h2>Архивированные чертежи:</h2>
+        <div class="drawing-container">
+            {% for drawing in archived_drawings %}
+            <div class="drawing-item">
+                <a href="/static/{{ drawing.path }}" target="_blank">
+                    <img src="/static/{{ drawing.path }}" alt="Архивированный чертеж">
+                </a>
+                <p>{{ drawing.name }}</p>
+                <button class="print-button" onclick="printDrawingWithQR('{{ order.id }}', '{{ drawing.id }}')">Печать чертежа с QR-кодом</button>
+            </div>
+            {% endfor %}
+        </div>
+        <a href="{{ url_for('edit_production_order', order_id=order.id) }}">Вернуться к редактированию заказа</a>
+        <script>
+         function printDrawingWithQR(orderId, drawingId) {
+             fetch(`/combine_drawing_with_qr/${orderId}/${drawingId}`)
+                 .then(response => {
+                     if (!response.ok) {
+                         return response.text().then(text => {
+                             throw new Error(`HTTP error! status: ${response.status}, statusText: ${response.statusText}, body: ${text}`);
+                         });
+                     }
+                     return response.blob();
+                 })
+                 .then(blob => {
+                     const url = window.URL.createObjectURL(blob);
+                     printImage(url);
+                 })
+                 .catch(error => {
+                     console.error('Error:', error);
+                     alert('Произошла ошибка при подготовке чертежа к печати: ' + error.message);
+                 });
+         }
 
-    <script>
-        function printDrawing(drawingPath) {
-            const printWindow = window.open('', '_blank');
-            printWindow.document.write(`
+         function printQRCode(qrCodePath) {
+             printImage(qrCodePath);
+         }
+
+         function printImage(imagePath) {
+             const printWindow = window.open('', '_blank');
+             printWindow.document.write(`
                 <!DOCTYPE html>
                 <html>
                 <head>
-                    <title>Печать чертежа</title>
+                    <title>Печать</title>
                     <style>
-                        body {
-                            margin: 0;
-                            padding: 0;
-                            display: flex;
-                            justify-content: center;
-                            align-items: center;
-                            height: 100vh;
-                        }
-                        img {
-                            max-width: 100%;
-                            max-height: 100%;
-                            object-fit: contain;
-                        }
-                        @media print {
-                            @page {
-                                size: auto;
-                                margin: 0mm;
-                            }
-                            body {
-                                margin: 0;
-                            }
-                        }
+                        body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }
+                        img { max-width: 100%; max-height: 100%; object-fit: contain; }
+                        @media print { @page { size: auto; margin: 0mm; } body { margin: 0; } }
                     </style>
                 </head>
                 <body>
-                    <img src="${drawingPath}" alt="Чертеж для печати" id="print-content">
+                    <img src="${imagePath}" alt="Изображение для печати" id="print-content">
                     <script>
                         window.onload = function() {
                             setTimeout(function() {
                                 window.print();
-                                window.onafterprint = function() {
-                                    window.close();
-                                };
+                                window.onafterprint = function() { window.close(); };
                             }, 1000);
                         };
                     <\/script>
                 </body>
                 </html>
-            `);
-            printWindow.document.close();
-        }
-    </script>
-</body>
+             `);
+             printWindow.document.close();
+         }
+        </script>
+    </body>
 </html>

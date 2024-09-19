@@ -18,7 +18,7 @@
          }
          @font-face {
              font-family: 'CommitMonoNerdFont';
-             src: url('/static/fonts/CommitMonoNerdFont-Regular.otf') format('opentype');  /* Или абсолютный путь */
+             src: url('/static/fonts/CommitMonoNerdFont-Regular.otf') format('opentype');
          }
          .container {
              width: 100%;
@@ -32,15 +32,15 @@
              border: 1px solid black;
              padding: 8px;
          }
-         #qr-code {
+         .qr-code {
              position: fixed;
-             bottom: 2cm;
-             right: 2cm;
+             bottom: 20mm;
+             right: 20mm;
          }
 
-         #qr-code img {
-             width: 35mm;
-             height: 35mm;
+         .qr-code img {
+             width: 35mm;  /* Уменьшено с 25mm до 20mm */
+             height: 35mm; /* Уменьшено с 25mm до 20mm */
              object-fit: contain;
          }
          .print-button {
@@ -101,8 +101,10 @@
                 </tr>
             </table>
         </div>
-        <div id="qr-code">
-            <img src="{{ qr_code_img }}" alt="QR-код">
+        {% if order.qr_code_path %}
+        <div class="qr-code">
+            <img src="/static/{{ order.qr_code_path }}" alt="QR-код заказа">
         </div>
+        {% endif %}
     </body>
 </html>

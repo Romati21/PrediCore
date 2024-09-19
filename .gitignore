@@ -19,6 +19,7 @@ static/drawings
 static/fonts
 static/archived_drawings
 static/temp
+static/uploads
 dist/
 downloads/
 eggs/
