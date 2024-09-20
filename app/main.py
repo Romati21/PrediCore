@@ -339,20 +339,20 @@ async def create_order(
             if not file_utils.is_allowed_file(drawing_file.filename):
                 raise HTTPException(status_code=400, detail=f"Invalid file type: {drawing_file.filename}")
 
-            processed_file = await process_uploaded_file(drawing_file)
+            processed_file = await process_uploaded_file(drawing_file, db)
             processed_files.append(processed_file)
 
             drawing = repository.get_or_create_drawing(
                 db,
                 processed_file['hash'],
-                processed_file['path'],
-                processed_file['filename'],
+                processed_file['file_path'],
+                processed_file['file_name'],
                 processed_file['file_size'],
                 processed_file['mime_type']
             )
             repository.create_order_drawing(db, new_order.id, drawing.id)
 
-        new_order.drawing_link = ','.join([file['path'] for file in processed_files])
+        new_order.drawing_link = ','.join([file['file_path'] for file in processed_files])
         db.commit()
 
         # Отправляем уведомление о новом заказе
@@ -415,23 +415,25 @@ async def update_production_order(
                     models.OrderDrawing.drawing_id == int(drawing_id)
                 ).first()
                 if order_drawing:
-                    drawing = db.query(models.Drawing).filter(models.Drawing.id == int(drawing_id)).first()
+                    drawing = order_drawing.drawing
                     if drawing:
                         drawing.archived_at = func.now()
                         db.add(drawing)
                         logger.info(f"Drawing {drawing_id} archived for order {order_id}")
 
         # Обработка новых чертежей
+        new_file_paths = []
         if drawing_files:
             for drawing_file in drawing_files:
                 if drawing_file.filename:
-                    processed_file = await process_uploaded_file(drawing_file)
+                    processed_file = await process_uploaded_file(drawing_file, db)
+                    new_file_paths.append(processed_file['file_path'])
 
                     drawing = repository.get_or_create_drawing(
                         db,
                         processed_file['hash'],
-                        processed_file['path'],
-                        processed_file['filename'],
+                        processed_file['file_path'],
+                        processed_file['file_name'],
                         processed_file['file_size'],
                         processed_file['mime_type']
                     )
@@ -452,7 +454,10 @@ async def update_production_order(
             models.Drawing.archived_at == None
         ).join(models.Drawing).all()
 
-        order.drawing_link = ','.join([order_drawing.drawing.file_path for order_drawing in active_drawings])
+        # Обновляем drawing_link
+        existing_file_paths = [order_drawing.drawing.file_path for order_drawing in active_drawings]
+        all_file_paths = existing_file_paths + new_file_paths
+        order.drawing_link = ','.join(set(all_file_paths))  # Используем set для удаления дубликатов
 
         db.commit()
         logger.info(f"Заказ успешно обновлен: {order.id}")
@@ -805,12 +810,27 @@ def safe_get_mtime(file_path):
         logger.warning(f"Файл не найден: {file_path}")
         return None
 
-async def process_uploaded_file(file: UploadFile):
+async def process_uploaded_file(file: UploadFile, db: Session):
     try:
         content = await file.read()
         file_hash = hashlib.sha256(content).hexdigest()
-        file_extension = os.path.splitext(file.filename)[1]
 
+        # Проверяем, существует ли файл с таким хешем в базе данных
+        existing_drawing = db.query(models.Drawing).filter(models.Drawing.hash == file_hash).first()
+        if existing_drawing:
+            logger.info(f"Файл с хешем {file_hash} уже существует. Используем существующий файл.")
+            # Обновляем last_used_at
+            existing_drawing.last_used_at = func.now()
+            db.commit()
+            return {
+                "file_name": existing_drawing.file_name,
+                "file_path": existing_drawing.file_path,
+                "hash": existing_drawing.hash,
+                "file_size": existing_drawing.file_size,
+                "mime_type": existing_drawing.mime_type
+            }
+
+        file_extension = os.path.splitext(file.filename)[1]
         final_path = get_file_path(file_hash, file_extension)
 
         # Создаем директории, если они не существуют
@@ -826,14 +846,24 @@ async def process_uploaded_file(file: UploadFile):
         file_size = os.path.getsize(standardized_path)
         mime_type = mimetypes.guess_type(standardized_path)[0] or 'application/octet-stream'
 
+        # Создаем новую запись в базе данных
+        new_drawing = models.Drawing(
+            file_name=file.filename,
+            file_path=standardized_path,
+            hash=file_hash,
+            file_size=file_size,
+            mime_type=mime_type
+        )
+        db.add(new_drawing)
+        db.commit()
+        db.refresh(new_drawing)
+
         return {
-            "filename": os.path.basename(standardized_path),
-            "path": standardized_path,
-            "original_size": original_size,
-            "new_size": new_size,
-            "hash": file_hash,
-            "file_size": file_size,
-            "mime_type": mime_type
+            "file_name": new_drawing.file_name,
+            "file_path": new_drawing.file_path,
+            "hash": new_drawing.hash,
+            "file_size": new_drawing.file_size,
+            "mime_type": new_drawing.mime_type
         }
     except Exception as e:
         logger.error(f"Ошибка при обработке файла {file.filename}: {str(e)}")
