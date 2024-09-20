@@ -78,32 +78,111 @@
          }
 
          function printImage(imagePath) {
+             // Попытка открыть новое окно
              const printWindow = window.open('', '_blank');
-             printWindow.document.write(`
-                <!DOCTYPE html>
-                <html>
+
+             if (printWindow === null) {
+                 // Если открытие окна заблокировано, используем альтернативный метод
+                 printImageInline(imagePath);
+             } else {
+                 // Если окно открылось успешно, используем его для печати
+                 printWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Печать</title>
+                <style>
+                    body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }
+                    img { max-width: 100%; max-height: 100%; object-fit: contain; }
+                    @media print { @page { size: auto; margin: 0mm; } body { margin: 0; } }
+                </style>
+            </head>
+            <body>
+                <img src="${imagePath}" alt="Изображение для печати" id="print-content">
+                <script>
+                    window.onload = function() {
+                        setTimeout(function() {
+                            window.print();
+                            window.onafterprint = function() { window.close(); };
+                        }, 1000);
+                    };
+                <\/script>
+            </body>
+            </html>
+                 `);
+                 printWindow.document.close();
+             }
+         }
+
+         function printImageInline(imagePath) {
+             // Создаем модальное окно для отображения изображения
+             const modal = document.createElement('div');
+             modal.style.position = 'fixed';
+             modal.style.top = '0';
+             modal.style.left = '0';
+             modal.style.width = '100%';
+             modal.style.height = '100%';
+             modal.style.backgroundColor = 'rgba(0,0,0,0.8)';
+             modal.style.display = 'flex';
+             modal.style.justifyContent = 'center';
+             modal.style.alignItems = 'center';
+             modal.style.zIndex = '9999';
+
+             const img = document.createElement('img');
+             img.src = imagePath;
+             img.style.maxWidth = '90%';
+             img.style.maxHeight = '90%';
+             img.style.objectFit = 'contain';
+
+             const printButton = document.createElement('button');
+             printButton.textContent = 'Печать';
+             printButton.style.position = 'absolute';
+             printButton.style.top = '10px';
+             printButton.style.right = '10px';
+
+             const closeButton = document.createElement('button');
+             closeButton.textContent = 'Закрыть';
+             closeButton.style.position = 'absolute';
+             closeButton.style.top = '10px';
+             closeButton.style.left = '10px';
+
+             modal.appendChild(img);
+             modal.appendChild(printButton);
+             modal.appendChild(closeButton);
+             document.body.appendChild(modal);
+
+             printButton.onclick = function() {
+                 const printContent = window.open('', '_blank');
+                 printContent.document.write(`
+            <html>
                 <head>
-                    <title>Печать</title>
+                    <title>Печать изображения</title>
                     <style>
-                        body { margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }
-                        img { max-width: 100%; max-height: 100%; object-fit: contain; }
-                        @media print { @page { size: auto; margin: 0mm; } body { margin: 0; } }
+                        body { margin: 0; }
+                        img { max-width: 100%; height: auto; }
                     </style>
                 </head>
                 <body>
-                    <img src="${imagePath}" alt="Изображение для печати" id="print-content">
+                    <img src="${imagePath}" alt="Изображение для печати">
                     <script>
                         window.onload = function() {
                             setTimeout(function() {
                                 window.print();
-                                window.onafterprint = function() { window.close(); };
+                                window.onafterprint = function() {
+                                    window.close();
+                                };
                             }, 1000);
                         };
                     <\/script>
                 </body>
-                </html>
-             `);
-             printWindow.document.close();
+            </html>
+                 `);
+                 printContent.document.close();
+             };
+
+             closeButton.onclick = function() {
+                 document.body.removeChild(modal);
+             };
          }
         </script>
     </body>
