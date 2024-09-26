@@ -28,8 +28,12 @@ import logging
 import hashlib
 import mimetypes
 from app.utils.file_utils import get_file_path
+from app.utils.file_utils import get_safe_file_path
+from app.repository import get_drawing_by_hash
 import shutil
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.schedulers import SchedulerAlreadyRunningError
+from app.tasks import cleanup_unused_drawings, clean_temp_folder
 
 
 
@@ -127,12 +131,22 @@ async def cleanup_unused_drawings(db: Session):
 # Инициализация планировщика
 scheduler = AsyncIOScheduler()
 
-# Добавление задачи очистки, выполняемой каждый день в 3:00
-scheduler.add_job(cleanup_unused_drawings, 'cron', hour=3, args=[next(get_db())])
+def setup_scheduler():
+    scheduler.add_job(cleanup_unused_drawings, 'cron', hour=3, args=[next(get_db())])
+    scheduler.add_job(clean_temp_folder, 'cron', hour=3)
 
-# Запуск планировщика
-scheduler.start()
+setup_scheduler()
 
+@app.on_event("startup")
+async def startup_event():
+    try:
+        scheduler.start()
+    except SchedulerAlreadyRunningError:
+        pass  # Планировщик уже запущен, игнорируем ошибку
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    scheduler.shutdown()
 
 def calculate_file_hash(file_path):
     sha256_hash = hashlib.sha256()
@@ -1012,8 +1026,11 @@ async def upload_drawing(
     db: Session = Depends(get_db)
 ):
     try:
+        # Чтение содержимого файла
+        file_content = await file.read()
+
         # Вычисление хеша файла
-        file_hash = await file_utils.calculate_file_hash(file)
+        file_hash = file_utils.calculate_file_hash(file_content)
 
         # Проверка существования чертежа с таким хешем
         existing_drawing = repository.get_drawing_by_hash(db, file_hash)
@@ -1022,16 +1039,23 @@ async def upload_drawing(
             repository.update_drawing_last_used(db, existing_drawing.id)
             file_path = existing_drawing.file_path
         else:
-            # Если чертеж новый, сохраняем его
-            file_path = file_utils.get_file_path(file_hash)
-            await file_utils.save_file(file, file_path)
+            # Если чертеж новый, создаем безопасный путь и сохраняем его
+            safe_filename = secure_filename(file.filename)
+            file_extension = os.path.splitext(safe_filename)[1]
+            safe_path = get_safe_file_path(f"{file_hash}{file_extension}")
+
+            # Сохраняем файл
+            with open(safe_path, "wb") as buffer:
+                buffer.write(file_content)
+
+            file_path = safe_path
 
         # Получаем информацию о файле
         file_size = file_utils.get_file_size(file_path)
         mime_type = file_utils.get_mime_type(file.filename)
 
         # Создаем или получаем запись о чертеже
-        drawing = repository.get_or_create_drawing(db, file_hash, file_path, file.filename, file_size, mime_type)
+        drawing = repository.get_or_create_drawing(db, file_hash, file_path, secure_filename(file.filename), file_size, mime_type)
 
         # Связываем чертеж с заказом
         order_drawing = repository.create_order_drawing(db, order_id, drawing.id)
