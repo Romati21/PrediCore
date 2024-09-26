@@ -3,9 +3,15 @@ import os
 import aiofiles
 from fastapi import UploadFile
 from datetime import datetime
+from werkzeug.utils import secure_filename
 
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 ALLOWED_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff'}
+
+
+def get_safe_file_path(filename):
+    safe_filename = secure_filename(filename)
+    return os.path.join('static', 'drawings', safe_filename)
 
 def calculate_file_hash(file_content: bytes) -> str:
     """

@@ -2,6 +2,7 @@ from fastapi import FastAPI, WebSocket, Depends, HTTPException, Request, Form, U
 from app.utils import file_utils
 import asyncio
 import io
+from werkzeug.utils import secure_filename
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -12,11 +13,10 @@ from app.database import SessionLocal, engine
 from app.cleanup_drawings import cleanup_original_drawings
 from app.websocket_manager import manager
 from app.schemas import ProductionOrderCreate
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pydantic import BaseModel
 from pathlib import Path
 from sqlalchemy.sql import func
-from sqlalchemy.orm import Session
 from PIL import Image, ImageDraw, ImageFont, ImageFile
 from typing import List, Optional
 import qrcode, os, math, time, shutil, io, base64, re, random, string, logging, json, traceback
@@ -105,6 +105,35 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.error(f"Ошибка WebSocket: {e}")
         manager.disconnect(websocket)
 
+
+
+async def cleanup_unused_drawings(db: Session):
+    # Определяем срок, после которого чертеж считается неиспользуемым (например, 30 дней)
+    unused_threshold = datetime.now() - timedelta(days=360)
+
+    # Получаем все неиспользуемые чертежи
+    unused_drawings = db.query(models.Drawing).filter(models.Drawing.last_used_at < unused_threshold).all()
+
+    for drawing in unused_drawings:
+        # Удаляем файл чертежа
+        if os.path.exists(drawing.file_path):
+            os.remove(drawing.file_path)
+
+        # Удаляем запись из базы данных
+        db.delete(drawing)
+
+    db.commit()
+
+# Инициализация планировщика
+scheduler = AsyncIOScheduler()
+
+# Добавление задачи очистки, выполняемой каждый день в 3:00
+scheduler.add_job(cleanup_unused_drawings, 'cron', hour=3, args=[next(get_db())])
+
+# Запуск планировщика
+scheduler.start()
+
+
 def calculate_file_hash(file_path):
     sha256_hash = hashlib.sha256()
     with open(file_path, "rb") as f:
@@ -117,8 +146,6 @@ def calculate_file_hash(file_path):
 async def read_root(request: Request):
     return templates.TemplateResponse("form.html", {"request": request})
 
-
-scheduler = AsyncIOScheduler()
 
 @scheduler.scheduled_job("cron", hour=3)  # Запускать каждый день в 3 часа ночи
 async def clean_temp_folder():
@@ -887,8 +914,6 @@ def archive_old_drawing(drawing_path):
         return None
 
 
-
-from sqlalchemy.orm import joinedload
 
 @app.get("/view_drawing/{order_id}")
 async def view_drawing(request: Request, order_id: int, db: Session = Depends(get_db)):
