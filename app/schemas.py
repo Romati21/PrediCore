@@ -1,38 +1,41 @@
-from pydantic import BaseModel, EmailStr, Field
-from datetime import date, datetime
+from pydantic import BaseModel, EmailStr
+from datetime import date
 from enum import Enum
 from typing import Optional
 
 
-# Определим роли пользователей
 class UserRole(str, Enum):
     MASTER = "Мастер"
     ADJUSTER = "Наладчик"
     WORKER = "Рабочий"
 
-class UserBase(BaseModel):
+# Схема для регистрации новых пользователей, без роли
+class UserCreate(BaseModel):
     full_name: str
     birth_date: date
     username: str
-    role: UserRole
     email: EmailStr
-    is_active: bool = True
-
-class UserCreate(UserBase):
-    password: str = Field(..., min_length=8)  # Пароль должен быть длиной минимум 8 символов
+    password: str
 
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     birth_date: Optional[date] = None
-    role: Optional[UserRole] = None
     email: Optional[EmailStr] = None
     is_active: Optional[bool] = None
 
-class User(UserBase):
+# Схема для назначения роли администратором
+class UserRoleUpdate(BaseModel):
+    role: UserRole
+
+class User(BaseModel):
     id: int
-    created_at: datetime
-    updated_at: datetime
-    last_login_at: Optional[datetime] = None
+    full_name: str
+    birth_date: date
+    username: str
+    email: EmailStr
+    is_active: bool
+    role: UserRole
+    last_login_at: Optional[date]
 
     class Config:
         orm_mode = True
