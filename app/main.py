@@ -253,7 +253,7 @@ async def print_order(request: Request, order_id: int, db: Session = Depends(get
     # Генерация QR-кода
     qr_code_data = f"Заказ-наряд №: {order.order_number}\n" \
                     f"Дата публикации: {order.publication_date.strftime('%d.%m.%Y')}\n" \
-                    f"Обозначение чертежа: {order.drawing_designation}\n" \
+                    f"Обозначение чертежа: {order.part_id}\n" \
                     f"Количество: {order.quantity}\n" \
                     f"Желательная дата изготовления: {order.desired_production_date_start.strftime('%d.%m.%Y')} - {order.desired_production_date_end.strftime('%d.%m.%Y')}\n" \
                     f"Необходимый материал: {order.required_material}\n" \
@@ -274,7 +274,7 @@ async def show_production_orders(request: Request, db: Session = Depends(get_db)
 
 
 class OrderDataCreate(BaseModel):
-    drawing_designation: str
+    part_id: str
     quantity: int
     desired_production_date_start: date
     desired_production_date_end: date
@@ -299,9 +299,9 @@ async def save_upload_file(upload_file: UploadFile, destination: str) -> str:
     except Exception:
         raise HTTPException(status_code=500, detail="Could not save file")
 
-def generate_order_number(drawing_designation, db):
-    # Извлекаем первые две цифры из drawing_designation
-    match = re.search(r'\d{2}', drawing_designation)
+def generate_order_number(part_id, db):
+    # Извлекаем первые две цифры из part_id
+    match = re.search(r'\d{2}', part_id)
     if match:
         prefix = match.group()
     else:
@@ -324,7 +324,7 @@ def generate_order_number(drawing_designation, db):
 
 @app.post("/create_order")
 async def create_order(
-    drawing_designation: str = Form(...),
+    part_id: str = Form(...),
     quantity: int = Form(...),
     desired_production_date_start: str = Form(...),
     desired_production_date_end: str = Form(...),
@@ -335,7 +335,7 @@ async def create_order(
     db: Session = Depends(get_db)
 ):
     try:
-        logger.info(f"Received order data: drawing_designation={drawing_designation}, "
+        logger.info(f"Received order data: part_id={part_id}, "
                     f"quantity={quantity}, desired_production_date_start={desired_production_date_start}, "
                     f"desired_production_date_end={desired_production_date_end}, "
                     f"required_material={required_material}, metal_delivery_date={metal_delivery_date}, "
@@ -345,11 +345,11 @@ async def create_order(
         end_date = datetime.strptime(desired_production_date_end, "%d.%m.%Y").date()
 
         # Генерируем уникальный номер заказа
-        order_number = generate_order_number(drawing_designation, db)
+        order_number = generate_order_number(part_id, db)
 
         order_data = schemas.ProductionOrderCreate(
             order_number=order_number,
-            drawing_designation=drawing_designation,
+            part_id=part_id,
             quantity=quantity,
             desired_production_date_start=start_date,
             desired_production_date_end=end_date,
@@ -420,7 +420,7 @@ async def create_order(
 async def update_production_order(
     request: Request,
     order_id: int,
-    drawing_designation: str = Form(...),
+    part_id: str = Form(...),
     drawing_files: List[UploadFile] = File(None),
     quantity: int = Form(...),
     desired_production_date_start: str = Form(...),
@@ -439,7 +439,7 @@ async def update_production_order(
             raise HTTPException(status_code=404, detail="Заказ не найден")
 
         # Обновляем данные заказа
-        order.drawing_designation = drawing_designation
+        order.part_id = part_id
         order.quantity = quantity
         order.desired_production_date_start = datetime.strptime(desired_production_date_start, "%d.%m.%Y").date()
         order.desired_production_date_end = datetime.strptime(desired_production_date_end, "%d.%m.%Y").date()
@@ -700,7 +700,7 @@ def process_drawing(drawing_path: str, order: models.ProductionOrder) -> str:
 
             qr_code_data = f"Заказ-наряд №: {order.order_number}\n" \
                            f"Дата публикации: {order.publication_date.strftime('%d.%m.%Y')}\n" \
-                           f"Обозначение чертежа: {order.drawing_designation}\n" \
+                           f"Обозначение чертежа: {order.part_id}\n" \
                            f"Количество: {order.quantity}\n" \
                            f"Желательная дата изготовления: {order.desired_production_date_start.strftime('%d.%m.%Y')} - {order.desired_production_date_end.strftime('%d.%m.%Y')}\n" \
                            f"Необходимый материал: {order.required_material}\n" \
