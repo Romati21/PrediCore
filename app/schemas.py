@@ -1,7 +1,41 @@
-from pydantic import BaseModel, validator, Field
-from datetime import date, time
-from typing import Optional
+from pydantic import BaseModel, EmailStr, Field
+from datetime import date, datetime
 from enum import Enum
+from typing import Optional
+
+
+# Определим роли пользователей
+class UserRole(str, Enum):
+    MASTER = "Мастер"
+    ADJUSTER = "Наладчик"
+    WORKER = "Рабочий"
+
+class UserBase(BaseModel):
+    full_name: str
+    birth_date: date
+    username: str
+    role: UserRole
+    email: EmailStr
+    is_active: bool = True
+
+class UserCreate(UserBase):
+    password: str = Field(..., min_length=8)  # Пароль должен быть длиной минимум 8 символов
+
+class UserUpdate(BaseModel):
+    full_name: Optional[str] = None
+    birth_date: Optional[date] = None
+    role: Optional[UserRole] = None
+    email: Optional[EmailStr] = None
+    is_active: Optional[bool] = None
+
+class User(UserBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    last_login_at: Optional[datetime] = None
+
+    class Config:
+        orm_mode = True
 
 class Shift(str, Enum):
     DAY = "День"

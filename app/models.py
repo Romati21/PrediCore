@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, DateTime, Date, Time, Boolean, F
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from sqlalchemy.ext.declarative import declarative_base
+from passlib.hash import bcrypt  # Для хэширования паролей
 import enum
 
 Base = declarative_base()
@@ -10,15 +11,46 @@ class Shift(enum.Enum):
     DAY = "День"
     NIGHT = "Ночь"
 
+class UserRole(enum.Enum):
+    MASTER = "Мастер"
+    ADJUSTER = "Наладчик"
+    WORKER = "Рабочий"
+
 class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    username = Column(String(50), unique=True, nullable=False)
     full_name = Column(String(100), nullable=False)
-    role = Column(String(50), nullable=False)
+    birth_date = Column(Date, nullable=False)
+    username = Column(String(50), unique=True, nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    role = Column(Enum(UserRole), nullable=False)
+    email = Column(String(100), unique=True, nullable=False)
+    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Хэширование пароля
+    def set_password(self, password: str):
+        self.password_hash = bcrypt.hash(password)
+
+    # Проверка пароля
+    def check_password(self, password: str) -> bool:
+        return bcrypt.verify(password, self.password_hash)
+
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    token = Column(String(255), unique=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+
+    user = relationship("User", back_populates="sessions")
+
+User.sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
 
 class Machine(Base):
     __tablename__ = "machines"
