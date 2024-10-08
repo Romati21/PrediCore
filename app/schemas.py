@@ -192,7 +192,7 @@ class ProductionOrderBase(BaseModel):
     desired_production_date_start: date
     desired_production_date_end: date
     required_material: str
-    metal_delivery_date: Optional[date] = None
+    metal_delivery_date: Optional[str] = None
     notes: Optional[str] = None
 
 class ProductionOrderCreate(ProductionOrderBase):
@@ -210,7 +210,7 @@ class ProductionOrderUpdate(BaseModel):
     desired_production_date_start: Optional[date] = None
     desired_production_date_end: Optional[date] = None
     required_material: Optional[str] = None
-    metal_delivery_date: Optional[date] = None
+    metal_delivery_date: Optional[str] = None
     notes: Optional[str] = None
 
     @validator('desired_production_date_end')
