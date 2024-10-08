@@ -299,9 +299,9 @@ async def save_upload_file(upload_file: UploadFile, destination: str) -> str:
     except Exception:
         raise HTTPException(status_code=500, detail="Could not save file")
 
-def generate_order_number(part_id, db):
-    # Извлекаем первые две цифры из part_id
-    match = re.search(r'\d{2}', part_id)
+def generate_order_number(part_number, db):
+    # Извлекаем первые две цифры из номера чертежа (number)
+    match = re.search(r'\d{2}', part_number)
     if match:
         prefix = match.group()
     else:
@@ -321,6 +321,17 @@ def generate_order_number(part_id, db):
         if not existing_order:
             return order_number
 
+@app.post("/parts/create")
+async def create_part(number: str = Form(...), name: str = Form(...), db: Session = Depends(get_db)):
+    new_part = models.Part(number=number, name=name)
+    db.add(new_part)
+    db.commit()
+    return {"success": True, "part_id": new_part.id}
+
+@app.get("/parts/search")
+async def search_parts(query: str, db: Session = Depends(get_db)):
+    parts = db.query(models.Part).filter(models.Part.number.ilike(f"%{query}%")).all()
+    return [{"id": part.id, "number": part.number, "name": part.name} for part in parts]
 
 @app.post("/create_order")
 async def create_order(
@@ -345,8 +356,13 @@ async def create_order(
         end_date = datetime.strptime(desired_production_date_end, "%d.%m.%Y").date()
 
         # Генерируем уникальный номер заказа
-        order_number = generate_order_number(part_id, db)
+        part = db.query(models.Part).filter_by(id=part_id).first()
+        if not part:
+            raise HTTPException(status_code=400, detail=f"Invalid part_id: {part_id}")
 
+        order_number = generate_order_number(part.number, db)
+
+        # Создаем данные для заказа
         order_data = schemas.ProductionOrderCreate(
             order_number=order_number,
             part_id=part_id,

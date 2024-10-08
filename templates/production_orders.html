@@ -43,7 +43,7 @@
             <tr data-order-id="{{ order.id }}">
                 <td><a href="{{ url_for('edit_production_order', order_id=order.id) }}">{{ order.order_number }}</a></td>
                 <td>{% if order.publication_date %}{{ order.publication_date.strftime('%d.%m.%Y') }}{% endif %}</td>
-                <td><a href="{{ url_for('view_drawing', order_id=order.id) }}" target="_blank">{{ order.drawing_designation }}</a></td>
+                <td><a href="{{ url_for('view_drawing', order_id=order.id) }}" target="_blank">{{ order.part.number }}</a></td>
                 <td>{{ order.quantity }}</td>
                 <td>{{ order.desired_production_date_start.strftime('%d.%m.%Y') }} - {{ order.desired_production_date_end.strftime('%d.%m.%Y') }}</td>
                 <td>{{ order.required_material }}</td>
@@ -134,7 +134,7 @@
                 row.innerHTML = `
                     <td><a href="/edit_production_order/${order.id}">${order.order_number}</a></td>
                     <td>${order.publication_date}</td>
-                    <td><a href="/view_drawing/${order.id}" target="_blank">${order.drawing_designation}</a></td>
+                    <td><a href="/view_drawing/${order.id}" target="_blank">${order.part.number}</a></td>
                     <td>${order.quantity}</td>
                     <td>${order.desired_production_date_start} - ${order.desired_production_date_end}</td>
                     <td>${order.required_material}</td>

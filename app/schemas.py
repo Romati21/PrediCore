@@ -1,5 +1,5 @@
-from pydantic import BaseModel, EmailStr
-from datetime import date
+from pydantic import BaseModel, EmailStr, Field, validator
+from datetime import date, datetime, time
 from enum import Enum
 from typing import Optional
 
@@ -38,7 +38,7 @@ class User(BaseModel):
     last_login_at: Optional[date]
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class Shift(str, Enum):
     DAY = "День"
@@ -58,7 +58,7 @@ class User(UserBase):
     updated_at: date
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class MachineBase(BaseModel):
     name: str
@@ -72,7 +72,7 @@ class Machine(MachineBase):
     updated_at: date
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class PartBase(BaseModel):
     number: str
@@ -87,7 +87,7 @@ class Part(PartBase):
     updated_at: date
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class OperationBase(BaseModel):
     name: str
@@ -101,7 +101,7 @@ class Operation(OperationBase):
     updated_at: date
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class WorkLogBase(BaseModel):
     user_id: int
@@ -126,14 +126,14 @@ class WorkLog(WorkLogBase):
     updated_at: date
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class ArchivedWorkLog(WorkLog):
     original_id: int
     archived_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class SetupInfoBase(BaseModel):
     work_log_id: int
@@ -150,7 +150,7 @@ class SetupInfo(SetupInfoBase):
     updated_at: date
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class OperationDetailsBase(BaseModel):
     work_log_id: int
@@ -168,7 +168,7 @@ class OperationDetails(OperationDetailsBase):
     updated_at: date
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class WorkLogNotesBase(BaseModel):
     work_log_id: int
@@ -183,7 +183,7 @@ class WorkLogNotes(WorkLogNotesBase):
     updated_at: date
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class ProductionOrderBase(BaseModel):
     order_number: str
@@ -229,14 +229,14 @@ class ProductionOrder(ProductionOrderBase):
     updated_at: date
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class ArchivedProductionOrder(ProductionOrder):
     original_id: int
     archived_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class DrawingBase(BaseModel):
     hash: str
@@ -256,7 +256,7 @@ class Drawing(DrawingBase):
     archived_at: Optional[date] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class OrderDrawingBase(BaseModel):
     order_id: int
@@ -270,4 +270,4 @@ class OrderDrawing(OrderDrawingBase):
     created_at: date
 
     class Config:
-        orm_mode = True
+        from_attributes = True

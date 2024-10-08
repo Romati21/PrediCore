@@ -124,7 +124,6 @@
              font-weight: bold;
              transition: 0.3s;
          }
-
          .qr-code {
              position: fixed;
              bottom: 20mm;
@@ -144,6 +143,7 @@
          }
         </style>
     </head>
+    </head>
     <body>
         <h1>
             {% if order %}
@@ -157,8 +157,16 @@
             <div>
                 <label for="drawing_designation">Обозначение чертежа:</label>
                 <input type="text" id="drawing_designation" name="drawing_designation" value="{{ order.drawing_designation if order else '' }}" required>
+                <input type="hidden" id="part_id" name="part_id" value="{{ order.part_id if order else '' }}">
             </div>
-
+            <div id="newPartModal" style="display: none;">
+                <h2>Добавление нового чертежа</h2>
+                <label for="newPartNumber">Обозначение чертежа:</label>
+                <input type="text" id="newPartNumber">
+                <label for="newPartName">Наименование детали:</label>
+                <input type="text" id="newPartName">
+                <button id="addNewPartButton" type="button">Добавить чертеж</button>
+            </div>
             <div>
                 <label for="quantity">Количество:</label>
                 <input type="number" id="quantity" name="quantity" value="{{ order.quantity if order else '' }}" required>
@@ -181,7 +189,7 @@
 
             <div>
                 <label for="metal_delivery_date">Срок поставки металла:</label>
-                <input type="text" name="metal_delivery_date">
+                <input type="date" id="metal_delivery_date" name="metal_delivery_date" value="{{ order.metal_delivery_date if order else '' }}">
             </div>
 
             <div>
@@ -309,47 +317,53 @@
                  $('#deletedDrawings').val(deletedDrawings.join(','));
              }
 
-             $('#orderForm').submit(function(e) {
-                 e.preventDefault();
-                 let formData = new FormData(this);
-
-                 $.ajax({
-                     url: this.action,
-                     type: 'POST',
-                     data: formData,
-                     processData: false,
-                     contentType: false,
-                     success: function(response) {
-                         if (response.message === "Order updated successfully") {
-                             // Перенаправляем пользователя на страницу со списком заказов
-                             window.location.href = '/production_orders';
-                         } else {
-                             // Если сообщение об успехе не получено, выводим полученное сообщение
-                             alert(response.message || 'Заказ обновлен, но произошла неизвестная ошибка.');
+             // Автозаполнение для поля "Обозначение чертежа"
+             $("#drawing_designation").autocomplete({
+                 source: function(request, response) {
+                     $.ajax({
+                         url: "/parts/search",
+                         data: { query: request.term },
+                         success: function(data) {
+                             response($.map(data, function(item) {
+                                 return {
+                                     label: item.number + " - " + item.name,
+                                     value: item.number,
+                                     id: item.id
+                                 };
+                             }));
                          }
-                     },
-                     error: function(xhr, status, error) {
-                         console.error('Error:', error);
-                         alert('Произошла ошибка при обновлении заказа. Пожалуйста, попробуйте еще раз.');
-                     }
-                 });
+                     });
+                 },
+                 minLength: 2,
+                 select: function(event, ui) {
+                     // Если чертеж выбран, сохраняем ID детали
+                     $('#part_id').val(ui.item.id);
+                 }
              });
 
-
-             // Проверка размера файлов перед отправкой формы
-             $('#orderForm').on('submit', function(e) {
-                 const files = document.getElementById('drawing_files').files;
-                 const maxSize = 20 * 1024 * 1024; // 20 MB
-                 let totalSize = 0;
-
-                 for (let i = 0; i < files.length; i++) {
-                     totalSize += files[i].size;
+             // Если чертеж не найден, добавляем новый
+             $("#drawing_designation").blur(function() {
+                 if ($("#drawing_designation").val() && !$("#part_id").val()) {
+                     // Показать форму для добавления нового чертежа
+                     $("#newPartModal").show();
                  }
+             });
 
-                 if (totalSize > maxSize) {
-                     e.preventDefault();
-                     alert('Общий размер файлов превышает 20 MB. Пожалуйста, выберите файлы меньшего размера.');
-                 }
+             $("#addNewPartButton").click(function() {
+                 const newNumber = $("#newPartNumber").val();
+                 const newName = $("#newPartName").val();
+                 // Отправка данных нового чертежа на сервер
+                 $.post("/parts/create", { number: newNumber, name: newName }, function(response) {
+                     if (response.success) {
+                         $('#part_id').val(response.part_id);
+                         $('#part_id').val(response.part_id || 'new');
+                         // Сохранение ID нового чертежа и закрытие формы
+                         $('#part_id').val(response.part_id);
+                         $("#newPartModal").hide();
+                     } else {
+                         alert("Ошибка при добавлении чертежа");
+                     }
+                 });
              });
 
              // Функция для увеличения изображения
@@ -371,5 +385,5 @@
              });
          });
         </script>
-                </body>
-            </html>
+    </body>
+</html>
