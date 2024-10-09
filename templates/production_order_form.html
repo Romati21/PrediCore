@@ -349,6 +349,11 @@
                  $("#drawing_designation").val(value);
 
                  if (value && !$("#part_id").val()) {
+                     // Установить значение нового номера чертежа в поле "Обозначение чертежа" формы добавления
+                     $("#newPartNumber").val(value);
+                     // Показать форму для добавления нового чертежа
+                     $("#newPartModal").show();
+                     $("#newPartName").focus();
                      // Показать форму для добавления нового чертежа
                      $("#newPartModal").show();
                  }
