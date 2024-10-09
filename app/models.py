@@ -237,7 +237,7 @@ class ProductionOrder(Base):
             "desired_production_date_start": self.desired_production_date_start.isoformat() if self.desired_production_date_start else None,
             "desired_production_date_end": self.desired_production_date_end.isoformat() if self.desired_production_date_end else None,
             "required_material": self.required_material,
-            "metal_delivery_date": self.metal_delivery_date.isoformat() if self.metal_delivery_date else None,
+            "metal_delivery_date": self.metal_delivery_date if self.metal_delivery_date else None,
             "notes": self.notes,
             "qr_code_path": self.qr_code_path
         }

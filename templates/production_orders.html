@@ -48,11 +48,11 @@
                 <td>{{ order.desired_production_date_start.strftime('%d.%m.%Y') }} - {{ order.desired_production_date_end.strftime('%d.%m.%Y') }}</td>
                 <td>{{ order.required_material }}</td>
                 <td>
-                    {% if order.metal_delivery_date.__class__.__name__ == 'date' %}
-                        {{ order.metal_delivery_date.strftime('%d.%m.%Y') }}
-                    {% else %}
-                        {{ order.metal_delivery_date }}
-                    {% endif %}
+                    <!-- {% if order.metal_delivery_date.__class__.__name__ == 'date' %}
+                         {{ order.metal_delivery_date.strftime('%d.%m.%Y') }}
+                         {% else %} -->
+                    {{ order.metal_delivery_date }}
+                    <!-- {% endif %} -->
                 </td>
                 <td>{{ order.notes }}</td>
                 <td><a href="{{ url_for('print_order', order_id=order.id) }}" target="_blank">Печать заказа</a></td>
