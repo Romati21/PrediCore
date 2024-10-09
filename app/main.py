@@ -323,6 +323,11 @@ def generate_order_number(part_number, db):
 
 @app.post("/parts/create")
 async def create_part(number: str = Form(...), name: str = Form(...), db: Session = Depends(get_db)):
+    # Проверяем, существует ли уже чертеж с таким номером
+    existing_part = db.query(models.Part).filter(models.Part.number == number).first()
+    if existing_part:
+        return {"success": False, "message": "Чертеж с таким номером уже существует"}
+
     new_part = models.Part(number=number, name=name)
     db.add(new_part)
     db.commit()
@@ -332,6 +337,18 @@ async def create_part(number: str = Form(...), name: str = Form(...), db: Sessio
 async def search_parts(query: str, db: Session = Depends(get_db)):
     parts = db.query(models.Part).filter(models.Part.number.ilike(f"%{query}%")).all()
     return [{"id": part.id, "number": part.number, "name": part.name} for part in parts]
+
+@app.get("/parts/check/{number}")
+async def check_part(number: str, db: Session = Depends(get_db)):
+    # Нормализация номера чертежа
+    number = number.strip().upper()
+    if number.startswith('КИ') and not number.startswith('КИ '):
+        number = 'КИ ' + number[2:].strip()
+
+    part = db.query(models.Part).filter(models.Part.number == number).first()
+    if part:
+        return {"exists": True, "part": {"id": part.id, "number": part.number, "name": part.name}}
+    return {"exists": False}
 
 @app.post("/create_order")
 async def create_order(
