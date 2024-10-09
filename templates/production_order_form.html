@@ -384,6 +384,62 @@
                  }
              });
 
+             // Обработка отправки формы
+             $('#orderForm').submit(function(e) {
+                 e.preventDefault();
+                 let formData = new FormData(this);
+                 let isNewOrder = !window.location.href.includes('update_production_order');
+
+                 // Проверка размера файлов перед отправкой
+                 const files = document.getElementById('drawing_files').files;
+                 const maxSize = 20 * 1024 * 1024; // 20 MB
+                 let totalSize = 0;
+
+                 for (let i = 0; i < files.length; i++) {
+                     totalSize += files[i].size;
+                 }
+
+                 if (totalSize > maxSize) {
+                     alert('Общий размер файлов превышает 20 MB. Пожалуйста, выберите файлы меньшего размера.');
+                     return;
+                 }
+
+                 $.ajax({
+                     url: this.action,
+                     type: 'POST',
+                     data: formData,
+                     processData: false,
+                     contentType: false,
+                     success: function(response) {
+                         console.log('Server response:', response); // Отладочный вывод
+
+                         if (isNewOrder) {
+                             // Для нового заказа
+                             if (response.success || response.order_id) {
+                                 window.location.href = '/production_orders';
+                             } else {
+                                 alert(response.message || 'Произошла ошибка при создании заказа.');
+                             }
+                         } else {
+                             // Для существующего заказа
+                             if (response.success || response.message === "Order updated successfully") {
+                                 window.location.href = '/production_orders';
+                             } else {
+                                 alert(response.message || 'Произошла ошибка при обновлении заказа.');
+                             }
+                         }
+                     },
+                     error: function(xhr, status, error) {
+                         console.error('Error:', error);
+                         let errorMessage = isNewOrder ?
+                                            'Произошла ошибка при создании заказа. Пожалуйста, попробуйте еще раз.' :
+                                            'Произошла ошибка при обновлении заказа. Пожалуйста, попробуйте еще раз.';
+                         alert(errorMessage);
+                     }
+                 });
+             });
+
+
              // Функция для увеличения изображения
              function enlargeImage(src) {
                  $('#enlargedImage').attr('src', src);
