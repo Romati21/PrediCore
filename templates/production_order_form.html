@@ -155,8 +155,10 @@
         <form id="orderForm" method="POST" enctype="multipart/form-data" action="{% if order %}{{ url_for('update_production_order', order_id=order.id) }}{% else %}{{ url_for('create_order') }}{% endif %}">
             <div>
                 <label for="drawing_designation">Обозначение чертежа:</label>
-                <input type="text" id="drawing_designation" name="drawing_designation" value="{{ order.part.number if order and order.part else '' }}" required>
-                <input type="hidden" id="part_id" name="part_id" value="{{ order.part_id if order else '' }}">
+                <input type="text" id="drawing_designation" name="drawing_designation"
+                       value="{{ order.part.number if order and order.part else '' }}" required>
+                <input type="hidden" id="part_id" name="part_id"
+                       value="{{ order.part_id if order else '' }}">
             </div>
             <div id="newPartModal" style="display: none;">
                 <h2>Добавление нового чертежа</h2>
@@ -201,7 +203,7 @@
 
             <div>
                 <label for="notes">Примечания:</label>
-                <textarea id="notes" name="notes">{{ order.notes if order else '' }}</textarea>
+                <textarea id="notes" name="notes">{{ order.notes if order.notes else '' }}</textarea>
             </div>
 
             <div>
