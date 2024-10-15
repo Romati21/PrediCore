@@ -4,9 +4,8 @@
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Регистрация - Журнал ЧПУ</title>
-        <link rel="manifest" href="/static/manifest.json">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
         <link rel="stylesheet" href="/static/styles.css">
-        <script src="/static/app.js" defer></script>
     </head>
     <body>
         <header>
@@ -20,7 +19,6 @@
             </nav>
         </header>
         <main>
-            <div id="reader"></div>
             <form id="registerform" method="post" action="/register" enctype="application/x-www-form-urlencoded">
                 <div class="form-group">
                     <label for="full_name">Полное имя:</label>
@@ -47,6 +45,7 @@
                 <button type="submit">Зарегистрироваться</button>
             </form>
         </main>
+
         <script>
          $(document).ready(function() {
              // Обработка отправки формы регистрации
@@ -61,18 +60,25 @@
                      processData: false,
                      contentType: false,
                      success: function(response) {
-                         console.log('Server response:', response);  // Отладочный вывод
+                         console.log('Server response:', response); // Отладочный вывод
 
-                         // Если регистрация прошла успешно, перенаправляем на страницу заказов
-                         if (response.id) {  // Предполагается, что при успешной регистрации возвращается ID пользователя
-                             window.location.href = '/production_orders';
+                         // Если регистрация прошла успешно
+                         if (response.id) {
+                             alert('Регистрация успешна!');
+                             window.location.href = '/production_orders';  // Перенаправление
                          } else {
                              alert(response.message || 'Произошла ошибка при регистрации.');
                          }
                      },
                      error: function(xhr, status, error) {
                          console.error('Error:', error);
-                         alert('Произошла ошибка при регистрации. Пожалуйста, попробуйте еще раз.');
+                         let errorMessage;
+                         try {
+                             errorMessage = JSON.parse(xhr.responseText).detail;
+                         } catch (e) {
+                             errorMessage = 'Произошла ошибка при регистрации. Пожалуйста, попробуйте еще раз.';
+                         }
+                         alert(errorMessage);
                      }
                  });
              });
