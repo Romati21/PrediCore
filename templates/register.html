@@ -5,6 +5,8 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Регистрация - Журнал ЧПУ</title>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.css">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.js"></script>
         <link rel="stylesheet" href="/static/styles.css">
     </head>
     <body>
@@ -26,7 +28,7 @@
                 </div>
                 <div class="form-group">
                     <label for="birth_date">Дата рождения:</label>
-                    <input type="date" id="birth_date" name="birth_date" placeholder="01.01.1990" required>
+                    <input type="text" id="birth_date" name="birth_date" placeholder="01.01.1990" required readonly>
                 </div>
                 <div class="form-group">
                     <label for="username">Имя пользователя:</label>
@@ -48,6 +50,17 @@
 
         <script>
          $(document).ready(function() {
+             // Подключаем jQuery UI Datepicker для поля "Дата рождения"
+             $.datepicker.setDefaults($.datepicker.regional["ru"]);
+
+             $("#birth_date").datepicker({
+                 dateFormat: "dd.mm.yy",
+                 changeMonth: true,
+                 changeYear: true,
+                 yearRange: "-100:+0",  // Возможность выбора даты рождения до 100 лет назад
+                 defaultDate: "-20y"   // По умолчанию выбирается дата 20 лет назад
+             });
+
              // Обработка отправки формы регистрации
              $('#registerform').submit(function(e) {
                  e.preventDefault();
