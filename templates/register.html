@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ru">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Регистрация - Журнал ЧПУ</title>
+        <link rel="manifest" href="/static/manifest.json">
+        <link rel="stylesheet" href="/static/styles.css">
+        <script src="/static/app.js" defer></script>
+    </head>
+    <body>
+        <header>
+            <h1>Журнал ЧПУ</h1>
+            <nav>
+                <a href="/">Главная</a>
+                <a href="/data">SQL</a>
+                <a href="/production_order_form">Создать заказ-наряд</a>
+                <a href="/production_orders">Список заказ-нарядов</a>
+                <a href="/register" class="active">Регистрация</a>
+            </nav>
+        </header>
+        <main>
+            <div id="reader"></div>
+            <form id="registerform" method="post" action="/register" enctype="application/x-www-form-urlencoded">
+                <div class="form-group">
+                    <label for="full_name">Полное имя:</label>
+                    <input type="text" id="full_name" name="full_name" required>
+                </div>
+                <div class="form-group">
+                    <label for="birth_date">Дата рождения:</label>
+                    <input type="date" id="birth_date" name="birth_date" required>
+                </div>
+                <div class="form-group">
+                    <label for="username">Имя пользователя:</label>
+                    <input type="text" id="username" name="username" required>
+                </div>
+                <div class="form-group">
+                    <label for="email">Электронная почта:</label>
+                    <input type="email" id="email" name="email" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">Пароль:</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
+                <button type="submit">Зарегистрироваться</button>
+            </form>
+        </main>
+        <script>
+         if ('serviceWorker' in navigator) {
+             navigator.serviceWorker.register('/static/service-worker.js')
+                      .then((reg) => console.log('Service worker registered.', reg))
+                      .catch((err) => console.log('Service worker registration failed:', err));
+         }
+         document.getElementById('register-form').addEventListener('submit', async (e) => {
+             e.preventDefault();
+             const formData = new FormData(e.target);
+             try {
+                 const response = await fetch('/register', {
+                     method: 'POST',
+                     body: formData,
+                     headers: {
+                         'Accept': 'application/json',
+                     },
+                 });
+                 if (response.ok) {
+                     const data = await response.json();
+                     alert('Регистрация успешна!');
+                     // Дополнительные действия после успешной регистрации
+                 } else {
+                     const errorData = await response.json();
+                     alert(`Ошибка: ${errorData.detail}`);
+                 }
+             } catch (error) {
+                 console.error('Ошибка:', error);
+                 alert('Произошла ошибка при регистрации');
+             }
+         });
+        </script>
+    </body>
+</html>

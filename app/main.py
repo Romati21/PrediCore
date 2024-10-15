@@ -33,8 +33,9 @@ from app.repository import get_drawing_by_hash
 import shutil
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.schedulers import SchedulerAlreadyRunningError
+from app.routes import auth
+from app.database import get_db
 from app.tasks import cleanup_unused_drawings, clean_temp_folder
-
 
 
 # Настройка логгирования
@@ -82,13 +83,14 @@ static_dir = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
+app.include_router(auth.router, tags=["auth"])
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+# def get_db():
+#     db = SessionLocal()
+#     try:
+#         yield db
+#     finally:
+#         db.close()
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -133,7 +135,7 @@ scheduler = AsyncIOScheduler()
 
 def setup_scheduler():
     scheduler.add_job(cleanup_unused_drawings, 'cron', hour=3, args=[next(get_db())])
-    scheduler.add_job(clean_temp_folder, 'cron', hour=3)
+    scheduler.add_job(lambda: asyncio.create_task(clean_temp_folder()), 'cron', hour=3)
 
 setup_scheduler()
 

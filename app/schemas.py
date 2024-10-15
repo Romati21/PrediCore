@@ -3,6 +3,12 @@ from datetime import date, datetime, time
 from enum import Enum
 from typing import Optional
 
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class TokenData(BaseModel):
+    username: Optional[str] = None
 
 class UserRole(str, Enum):
     MASTER = "Мастер"
@@ -16,6 +22,23 @@ class UserCreate(BaseModel):
     username: str
     email: EmailStr
     password: str
+    # Уберем поле role отсюда, так как оно будет назначаться автоматически
+
+    @validator('birth_date', pre=True)
+    def parse_birth_date(cls, v):
+        if isinstance(v, str):
+            return date.fromisoformat(v)
+        return v
+
+    @validator('password')
+    def password_strength(cls, v):
+        if len(v) < 8:
+            raise ValueError('Пароль должен содержать не менее 8 символов')
+        if not any(char.isdigit() for char in v):
+            raise ValueError('Пароль должен содержать хотя бы одну цифру')
+        if not any(char.isupper() for char in v):
+            raise ValueError('Пароль должен содержать хотя бы одну заглавную букву')
+        return v
 
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
@@ -33,12 +56,17 @@ class User(BaseModel):
     birth_date: date
     username: str
     email: EmailStr
-    is_active: bool
     role: UserRole
-    last_login_at: Optional[date]
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
+        json_encoders = {
+            datetime: lambda dt: dt.isoformat(),
+            date: lambda d: d.isoformat()
+        }
 
 class Shift(str, Enum):
     DAY = "День"
@@ -49,13 +77,13 @@ class UserBase(BaseModel):
     full_name: str
     role: str
 
-class UserCreate(UserBase):
-    pass
+# class UserCreate(UserBase):
+#     pass
 
 class User(UserBase):
     id: int
-    created_at: date
-    updated_at: date
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
