@@ -24,10 +24,15 @@ async def register_user(
     password: str = Form(...),
     db: Session = Depends(get_db)
 ):
-    db_user = db.query(models.User).filter(models.User.username == username).first()
-    if db_user:
-        raise HTTPException(status_code=400, detail="Пользователь с таким именем уже существует")
-    
+    # Проверяем, существует ли пользователь с таким email
+    db_user_by_email = db.query(models.User).filter(models.User.email == email).first()
+    if db_user_by_email:
+        raise HTTPException(status_code=400, detail="Пользователь с таким адресом электронной почты уже существует")
+
+    db_user_by_username = db.query(models.User).filter(models.User.username == username).first()
+    if db_user_by_username:
+        raise HTTPException(status_code=400, detail="Пользователь с таким именем пользователя уже существует")
+
     try:
         user_data = schemas.UserCreate(
             full_name=full_name,

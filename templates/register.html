@@ -24,56 +24,77 @@
             <form id="registerform" method="post" action="/register" enctype="application/x-www-form-urlencoded">
                 <div class="form-group">
                     <label for="full_name">Полное имя:</label>
-                    <input type="text" id="full_name" name="full_name" required>
+                    <input type="text" id="full_name" name="full_name" placeholder="Иванов Иван Иванович" required>
                 </div>
                 <div class="form-group">
                     <label for="birth_date">Дата рождения:</label>
-                    <input type="date" id="birth_date" name="birth_date" required>
+                    <input type="date" id="birth_date" name="birth_date" placeholder="01.01.1990" required>
                 </div>
                 <div class="form-group">
                     <label for="username">Имя пользователя:</label>
-                    <input type="text" id="username" name="username" required>
+                    <input type="text" id="username" name="username" placeholder="ivan123" required>
                 </div>
                 <div class="form-group">
                     <label for="email">Электронная почта:</label>
-                    <input type="email" id="email" name="email" required>
+                    <input type="email" id="email" name="email" placeholder="example@mail.ru" required>
                 </div>
                 <div class="form-group">
                     <label for="password">Пароль:</label>
-                    <input type="password" id="password" name="password" required>
+                    <input type="password" id="password" name="password" placeholder="Ваш пароль" required>
+                    <small id="passwordHelp" class="form-text text-muted">Пароль должен содержать не менее 8 символов, хотя бы одну цифру и одну заглавную букву.</small>
+                    <small id="passwordError" class="form-text text-danger" style="display: none;">Пароль не соответствует правилам.</small>
                 </div>
                 <button type="submit">Зарегистрироваться</button>
             </form>
         </main>
         <script>
-         if ('serviceWorker' in navigator) {
-             navigator.serviceWorker.register('/static/service-worker.js')
-                      .then((reg) => console.log('Service worker registered.', reg))
-                      .catch((err) => console.log('Service worker registration failed:', err));
-         }
-         document.getElementById('register-form').addEventListener('submit', async (e) => {
-             e.preventDefault();
-             const formData = new FormData(e.target);
-             try {
-                 const response = await fetch('/register', {
-                     method: 'POST',
-                     body: formData,
-                     headers: {
-                         'Accept': 'application/json',
+         $(document).ready(function() {
+             // Обработка отправки формы регистрации
+             $('#registerform').submit(function(e) {
+                 e.preventDefault();
+                 let formData = new FormData(this);
+
+                 $.ajax({
+                     url: this.action,  // URL для отправки формы ("/register")
+                     type: 'POST',
+                     data: formData,
+                     processData: false,
+                     contentType: false,
+                     success: function(response) {
+                         console.log('Server response:', response);  // Отладочный вывод
+
+                         // Если регистрация прошла успешно, перенаправляем на страницу заказов
+                         if (response.id) {  // Предполагается, что при успешной регистрации возвращается ID пользователя
+                             window.location.href = '/production_orders';
+                         } else {
+                             alert(response.message || 'Произошла ошибка при регистрации.');
+                         }
                      },
+                     error: function(xhr, status, error) {
+                         console.error('Error:', error);
+                         alert('Произошла ошибка при регистрации. Пожалуйста, попробуйте еще раз.');
+                     }
                  });
-                 if (response.ok) {
-                     const data = await response.json();
-                     alert('Регистрация успешна!');
-                     // Дополнительные действия после успешной регистрации
+             });
+
+             // Валидация поля "Пароль"
+             const passwordInput = document.getElementById('password');
+             const passwordError = document.getElementById('passwordError');
+
+             passwordInput.addEventListener('input', function() {
+                 const password = passwordInput.value;
+
+                 // Проверка на длину, цифры и заглавные буквы
+                 const isValidPassword = password.length >= 8 &&
+                                         /[A-Z]/.test(password) &&
+                                         /\d/.test(password);
+
+                 if (!isValidPassword) {
+                     passwordError.style.display = 'block';
                  } else {
-                     const errorData = await response.json();
-                     alert(`Ошибка: ${errorData.detail}`);
+                     passwordError.style.display = 'none';
                  }
-             } catch (error) {
-                 console.error('Ошибка:', error);
-                 alert('Произошла ошибка при регистрации');
-             }
+             });
          });
         </script>
     </body>
