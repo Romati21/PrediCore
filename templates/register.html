@@ -61,9 +61,18 @@
                  defaultDate: "-20y"   // По умолчанию выбирается дата 20 лет назад
              });
 
-             // Обработка отправки формы регистрации
+             // Преобразование даты в формат ISO перед отправкой формы
              $('#registerform').submit(function(e) {
                  e.preventDefault();
+
+                 // Преобразуем дату в формат ISO (yyyy-mm-dd)
+                 let birthDate = $("#birth_date").val();
+                 if (birthDate) {
+                     const parts = birthDate.split('.');
+                     const isoDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                     $("#birth_date").val(isoDate);
+                 }
+
                  let formData = new FormData(this);
 
                  $.ajax({
