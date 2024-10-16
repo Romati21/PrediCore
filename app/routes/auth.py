@@ -4,7 +4,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from app import models, schemas
 from app.database import get_db
-from app.auth.auth import authenticate_user, create_access_token, get_password_hash, get_current_active_user, is_admin
+from app.auth.auth import authenticate_user, create_access_token, get_password_hash, get_current_active_user, is_admin, create_refresh_token, refresh_access_token
 from datetime import timedelta, date
 from fastapi.templating import Jinja2Templates
 
@@ -63,15 +63,19 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     user = authenticate_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=401,
             detail="Неверное имя пользователя или пароль",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    access_token_expires = timedelta(minutes=30)
-    access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
-    )
-    return {"access_token": access_token, "token_type": "bearer"}
+    access_token = create_access_token(data={"sub": user.username})
+    refresh_token = create_refresh_token(data={"sub": user.username})
+    return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
+
+@router.post("/token/refresh", response_model=schemas.Token)
+async def refresh_token_endpoint(refresh_token: str, db: Session = Depends(get_db)):
+    new_access_token = refresh_access_token(refresh_token)
+    return {"access_token": new_access_token, "refresh_token": refresh_token, "token_type": "bearer"}
+
 
 @router.get("/users/me/", response_model=schemas.User)
 async def read_users_me(current_user: schemas.User = Depends(get_current_active_user)):
