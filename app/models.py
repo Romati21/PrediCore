@@ -96,6 +96,7 @@ class WorkLog(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     is_archived = Column(Boolean, default=False, nullable=False)
+    is_deleted = Column(Boolean, default=False, nullable=False)
 
     user = relationship("User", foreign_keys=[user_id])
     machine = relationship("Machine")
@@ -129,6 +130,7 @@ class ArchivedWorkLog(Base):
     created_at = Column(DateTime(timezone=True), nullable=False)
     updated_at = Column(DateTime(timezone=True), nullable=False)
     archived_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    is_deleted = Column(Boolean, default=False, nullable=False)
 
 class SetupInfo(Base):
     __tablename__ = "setup_info"
@@ -216,6 +218,7 @@ class ProductionOrder(Base):
     qr_code_path = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    is_deleted = Column(Boolean, default=False, nullable=False)
 
     drawings = relationship("OrderDrawing", back_populates="order")
     part = relationship("Part")
@@ -262,5 +265,6 @@ class ArchivedProductionOrder(Base):
     created_at = Column(DateTime(timezone=True), nullable=False)
     updated_at = Column(DateTime(timezone=True), nullable=False)
     archived_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    is_deleted = Column(Boolean, default=False, nullable=False)
 
 OrderDrawing.order = relationship("ProductionOrder", back_populates="drawings")
