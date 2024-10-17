@@ -86,12 +86,14 @@
              $('#registerform').submit(function(e) {
                  e.preventDefault();
 
-                 // Преобразуем дату в формат ISO (yyyy-mm-dd)
+                 // Преобразуем дату в формат ISO (yyyy-mm-dd) только если формат правильный
                  let birthDate = $("#birth_date").val();
                  if (birthDate) {
                      const parts = birthDate.split('.');
-                     const isoDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
-                     $("#birth_date").val(isoDate);
+                     if (parts.length === 3) {
+                         const isoDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                         $("#birth_date").val(isoDate);
+                     }
                  }
 
                  let formData = new FormData(this);
@@ -122,6 +124,16 @@
                              errorMessage = 'Произошла ошибка при регистрации. Пожалуйста, попробуйте еще раз.';
                          }
                          alert(errorMessage);
+
+                         // Восстанавливаем формат даты в случае ошибки
+                         let isoBirthDate = $("#birth_date").val();
+                         if (isoBirthDate && isoBirthDate.includes('-')) {
+                             const parts = isoBirthDate.split('-');
+                             if (parts.length === 3) {
+                                 const localDate = `${parts[2]}.${parts[1]}.${parts[0]}`;
+                                 $("#birth_date").val(localDate);  // Восстанавливаем формат даты обратно
+                             }
+                         }
                      }
                  });
              });
