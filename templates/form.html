@@ -1,48 +1,84 @@
 <!DOCTYPE html>
 <html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Журнал ЧПУ</title>
-    <link rel="manifest" href="/static/manifest.json">
-    <link rel="stylesheet" href="/static/styles.css">
-    <script src="https://unpkg.com/html5-qrcode"></script>
-    <script src="/static/app.js" defer></script>
-</head>
-<body>
-    <header>
-        <h1>Журнал ЧПУ</h1>
-        <nav>
-            <a href="/" class="active">Главная</a>
-            <a href="/data">SQL</a>
-            <a href="/production_order_form">Создать заказ-наряд</a>
-            <a href="/production_orders">Список заказ-нарядов</a>
-        </nav>
-    </header>
-    <main>
-        <div id="reader"></div>
-        <form id="dataForm" action="/submit" method="post">
-            <div class="form-group">
-                <label for="batch_number">Номер партии:</label>
-                <input type="text" id="batch_number" name="batch_number" required>
-            </div>
-            <div class="form-group">
-                <label for="part_number">Номер детали:</label>
-                <input type="text" id="part_number" name="part_number" required>
-            </div>
-            <div class="form-group">
-                <label for="quantity">Количество:</label>
-                <input type="number" id="quantity" name="quantity" required>
-            </div>
-            <button type="submit">Отправить</button>
-        </form>
-    </main>
-    <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/static/service-worker.js')
-              .then((reg) => console.log('Service worker registered.', reg))
-              .catch((err) => console.log('Service worker registration failed:', err));
-        }
-    </script>
-</body>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Журнал ЧПУ</title>
+        <link rel="manifest" href="/static/manifest.json">
+        <link rel="stylesheet" href="/static/styles.css">
+        <script src="https://unpkg.com/html5-qrcode"></script>
+        <script src="/static/app.js" defer></script>
+    </head>
+    <body>
+        <header>
+            <h1>Журнал ЧПУ</h1>
+            <nav>
+                <a href="/" class="active">Главная</a>
+                <a href="/data">SQL</a>
+                <a href="/production_order_form">Создать заказ-наряд</a>
+                <a href="/production_orders">Список заказ-нарядов</a>
+            </nav>
+        </header>
+        <main>
+            <div id="reader"></div>
+            <form id="workLogForm" action="/submit_work_log" method="post">
+                <!-- Поле для выбора пользователя (оператора) -->
+                <div class="form-group">
+                    <label for="user_id">Оператор:</label>
+                    <input type="text" id="user_id" name="user_id" placeholder="Введите ID пользователя" required>
+                </div>
+
+                <!-- Поле для выбора наладчика -->
+                <div class="form-group">
+                    <label for="adjuster_id">Наладчик:</label>
+                    <input type="text" id="adjuster_id" name="adjuster_id" placeholder="Введите ID наладчика">
+                </div>
+
+                <!-- Поле для выбора машины -->
+                <div class="form-group">
+                    <label for="machine_id">Машина:</label>
+                    <input type="text" id="machine_id" name="machine_id" placeholder="Введите ID машины" required>
+                </div>
+
+                <!-- Поле для выбора детали -->
+                <div class="form-group">
+                    <label for="part_id">Деталь:</label>
+                    <input type="text" id="part_id" name="part_id" placeholder="Введите ID детали" required>
+                </div>
+
+                <!-- Поле для выбора операции -->
+                <div class="form-group">
+                    <label for="operation_id">Операция:</label>
+                    <input type="text" id="operation_id" name="operation_id" placeholder="Введите ID операции" required>
+                </div>
+
+                <!-- Поле для количества произведенной продукции -->
+                <div class="form-group">
+                    <label for="produced_quantity">Количество произведенной продукции:</label>
+                    <input type="number" id="produced_quantity" name="produced_quantity" required>
+                </div>
+
+                <!-- Поле для времени начала работы -->
+                <div class="form-group">
+                    <label for="start_time">Время начала работы:</label>
+                    <input type="datetime-local" id="start_time" name="start_time" required>
+                </div>
+
+                <!-- Поле для времени окончания работы -->
+                <div class="form-group">
+                    <label for="end_time">Время окончания работы:</label>
+                    <input type="datetime-local" id="end_time" name="end_time" required>
+                </div>
+
+                <button type="submit">Отправить</button>
+            </form>
+        </main>
+        <script>
+         if ('serviceWorker' in navigator) {
+             navigator.serviceWorker.register('/static/service-worker.js')
+                      .then((reg) => console.log('Service worker registered.', reg))
+                      .catch((err) => console.log('Service worker registration failed:', err));
+         }
+        </script>
+    </body>
 </html>
