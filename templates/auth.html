@@ -3,140 +3,68 @@
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <link rel="manifest" href="/static/manifest.json">
+        <title>Авторизация</title>
         <link rel="stylesheet" href="/static/styles.css">
-        <title>Аутентификация</title>
-        <style>
-         body {
-             font-family: Arial, sans-serif;
-             display: flex;
-             justify-content: center;
-             align-items: center;
-             height: 100vh;
-             margin: 0;
-             background-color: #f0f0f0;
-         }
-         .container {
-             background-color: white;
-             padding: 2rem;
-             border-radius: 5px;
-             box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-         }
-         h2 {
-             margin-top: 0;
-         }
-         form {
-             display: flex;
-             flex-direction: column;
-         }
-         input {
-             margin-bottom: 1rem;
-             padding: 0.5rem;
-             border: 1px solid #ccc;
-             border-radius: 3px;
-         }
-         button {
-             background-color: #007bff;
-             color: white;
-             border: none;
-             padding: 0.5rem;
-             border-radius: 3px;
-             cursor: pointer;
-         }
-         button:hover {
-             background-color: #0056b3;
-         }
-         .error {
-             color: red;
-             margin-bottom: 1rem;
-         }
-        </style>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
     </head>
     <body>
-        <div class="container">
-            <h2>Вход</h2>
-            <form id="login-form">
-                <input type="text" name="username" placeholder="Имя пользователя" required>
-                <input type="password" name="password" placeholder="Пароль" required>
+        <header>
+            <h1>Авторизация пользователя</h1>
+        </header>
+        <main>
+            <form id="loginForm" action="/login" method="post">
+                <div class="form-group">
+                    <label for="username">Имя пользователя:</label>
+                    <input type="text" id="username" name="username" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">Пароль:</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
                 <button type="submit">Войти</button>
             </form>
-            <div id="login-error" class="error"></div>
 
-            <h2>Регистрация</h2>
-            <form id="register-form">
-                <input type="text" name="username" placeholder="Имя пользователя" required>
-                <input type="email" name="email" placeholder="Email" required>
-                <input type="text" name="full_name" placeholder="Полное имя" required>
-                <input type="password" name="password" placeholder="Пароль" required>
-                <input type="date" name="birth_date" required>
-                <button type="submit">Зарегистрироваться</button>
-            </form>
-            <div id="register-error" class="error"></div>
-        </div>
+            {% if error %}
+            <p style="color:red;">{{ error }}</p>
+            {% endif %}
+            {% if message %}
+            <p style="color:green;">{{ message }}</p>
+            {% endif %}
+        </main>
 
         <script>
-         const loginForm = document.getElementById('login-form');
-         const registerForm = document.getElementById('register-form');
-         const loginError = document.getElementById('login-error');
-         const registerError = document.getElementById('register-error');
+         $(document).ready(function() {
+             $('#loginForm').submit(function(e) {
+                 e.preventDefault();
+                 let formData = $(this).serialize();  // Собираем данные формы
 
-         loginForm.addEventListener('submit', async (e) => {
-             e.preventDefault();
-             const formData = new FormData(loginForm);
-             try {
-                 const response = await fetch('/auth/token', {
-                     method: 'POST',
-                     body: formData
-                 });
-                 if (response.ok) {
-                     const data = await response.json();
-                     localStorage.setItem('access_token', data.access_token);
-                     window.location.href = '/dashboard';  // Перенаправление на страницу dashboard после успешного входа
-                 } else {
-                     const error = await response.json();
-                     loginError.textContent = error.detail;
-                 }
-             } catch (error) {
-                 loginError.textContent = 'Произошла ошибка при входе';
-             }
-         });
+                 $.ajax({
+                     url: this.action,  // URL для отправки формы
+                     type: 'POST',
+                     data: formData,
+                     success: function(response) {
+                         console.log('Server response:', response);  // Отладочный вывод
 
-         registerForm.addEventListener('submit', async (e) => {
-             e.preventDefault();
-             const formData = new FormData(registerForm);
-             const userData = Object.fromEntries(formData.entries());
-
-             try {
-                 const response = await fetch('/auth/register', {
-                     method: 'POST',
-                     headers: {
-                         'Content-Type': 'application/json'
+                         // Если авторизация успешна, перенаправляем на главную страницу
+                         if (response.success) {  // Проверяем, вернулся ли флаг успешной авторизации
+                             alert('Успешная авторизация!');
+                             window.location.href = '/';  // Перенаправление на главную страницу
+                         } else {
+                             alert(response.error || 'Произошла ошибка при авторизации.');
+                         }
                      },
-                     body: JSON.stringify(userData)
+                     error: function(xhr, status, error) {
+                         console.error('Error:', error);
+                         let errorMessage;
+                         try {
+                             errorMessage = JSON.parse(xhr.responseText).detail;
+                         } catch (e) {
+                             errorMessage = 'Произошла ошибка при авторизации. Пожалуйста, попробуйте еще раз.';
+                         }
+                         alert(errorMessage);
+                     }
                  });
-                 if (response.ok) {
-                     const data = await response.json();
-                     alert('Регистрация успешна! Теперь вы можете войти.');
-                     registerForm.reset();
-                 } else {
-                     const error = await response.json();
-                     registerError.textContent = error.detail;
-                 }
-             } catch (error) {
-                 registerError.textContent = 'Произошла ошибка при регистрации';
-             }
-         });
-
-         // Валидация пароля
-         const passwordInput = registerForm.querySelector('input[name="password"]');
-         passwordInput.addEventListener('input', () => {
-             const password = passwordInput.value;
-             const regex = /^(?=.*\d)(?=.*[!@#$%^&*])(?=.*[a-z])(?=.*[A-Z]).{8,}$/;
-             if (!regex.test(password)) {
-                 passwordInput.setCustomValidity('Пароль должен содержать не менее 8 символов, включая цифры, специальные символы, строчные и заглавные буквы');
-             } else {
-                 passwordInput.setCustomValidity('');
-             }
+             });
          });
         </script>
     </body>

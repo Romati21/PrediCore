@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app import models, schemas
 from app.database import get_db
 import secrets
+from jose import ExpiredSignatureError
 
 # Настройки JWT
 SECRET_KEY = secrets.token_hex(32)  # Генерирует 64-символьный
@@ -18,12 +19,6 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 
-def create_refresh_token(data: dict):
-    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode = data.copy()
-    to_encode.update({"exp": expire})
-    refresh_token = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return refresh_token
 
 def refresh_access_token(refresh_token: str):
     try:
@@ -34,9 +29,13 @@ def refresh_access_token(refresh_token: str):
                 status_code=401,
                 detail="Invalid token"
             )
-        # Создаем новый access-токен
         new_access_token = create_access_token(data={"sub": username})
         return new_access_token
+    except ExpiredSignatureError:
+        raise HTTPException(
+            status_code=401,
+            detail="Refresh token expired"
+        )
     except JWTError:
         raise HTTPException(
             status_code=401,
@@ -63,8 +62,15 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
     else:
         expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
-    access_token = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return access_token
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return {"token": encoded_jwt, "expires": expire}
+
+def create_refresh_token(data: dict):
+    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)  # Используем константу
+    to_encode = data.copy()
+    to_encode.update({"exp": expire})
+    refresh_token = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return refresh_token
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(

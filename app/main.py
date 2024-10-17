@@ -83,7 +83,7 @@ static_dir = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-app.include_router(auth.router, tags=["auth"])
+app.include_router(auth.router)
 
 # def get_db():
 #     db = SessionLocal()

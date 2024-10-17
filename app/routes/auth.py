@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Form
+from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
@@ -7,6 +8,7 @@ from app.database import get_db
 from app.auth.auth import authenticate_user, create_access_token, get_password_hash, get_current_active_user, is_admin, create_refresh_token, refresh_access_token
 from datetime import timedelta, date
 from fastapi.templating import Jinja2Templates
+
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -90,3 +92,30 @@ async def update_user_role(user_id: int, role_update: schemas.UserRoleUpdate, db
     db.commit()
     db.refresh(db_user)
     return db_user
+
+@router.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    return templates.TemplateResponse("auth.html", {"request": request})
+
+@router.post("/login", response_class=JSONResponse)
+async def login_user(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    user = authenticate_user(db, username, password)
+    if not user:
+        return JSONResponse(content={"error": "Неверное имя пользователя или пароль"}, status_code=400)
+
+    # Создаем токены
+    access_token_expires = timedelta(minutes=30)
+    access_token = create_access_token(data={"sub": user.username}, expires_delta=access_token_expires)
+    refresh_token = create_refresh_token(data={"sub": user.username})
+
+    # Возвращаем JSON-ответ с токенами и флагом success
+    response = JSONResponse(content={"success": True, "message": "Успешный вход"})
+    response.set_cookie(key="access_token", value=f"Bearer {access_token}", httponly=True)
+    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True)
+
+    return response
