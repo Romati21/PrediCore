@@ -3,6 +3,11 @@ from app.database import SessionLocal
 from app import models
 from datetime import datetime, timedelta
 import os
+import logging
+
+logger = logging.getLogger(__name__)
+
+TEMP_DIR = 'static/temp'
 
 def cleanup_unused_drawings(db):
     unused_threshold = datetime.now() - timedelta(days=30)
@@ -13,7 +18,12 @@ def cleanup_unused_drawings(db):
         db.delete(drawing)
     db.commit()
 
-def clean_temp_folder():
-    temp_dir = 'static/temp'
-    shutil.rmtree(temp_dir)
-    os.makedirs(temp_dir)
+# Асинхронная функция для очистки временной папки
+async def clean_temp_folder():
+    try:
+        if os.path.exists(TEMP_DIR):
+            shutil.rmtree(TEMP_DIR)
+        os.makedirs(TEMP_DIR)
+        logger.info("Временная папка успешно очищена")
+    except Exception as e:
+        logger.error(f"Ошибка при очистке временной папки: {str(e)}")

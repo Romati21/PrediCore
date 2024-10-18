@@ -36,6 +36,7 @@ from apscheduler.schedulers import SchedulerAlreadyRunningError
 from app.routes import auth
 from app.database import get_db
 from app.tasks import cleanup_unused_drawings, clean_temp_folder
+from apscheduler.triggers.cron import CronTrigger
 
 
 # Настройка логгирования
@@ -113,42 +114,52 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 
+# Асинхронная функция для очистки неиспользуемых чертежей
 async def cleanup_unused_drawings(db: Session):
-    # Определяем срок, после которого чертеж считается неиспользуемым (например, 30 дней)
-    unused_threshold = datetime.now() - timedelta(days=360)
+    try:
+        # Определяем срок, после которого чертеж считается неиспользуемым (например, 30 дней)
+        unused_threshold = datetime.now() - timedelta(days=360)
+        # Получаем все неиспользуемые чертежи
+        unused_drawings = db.query(models.Drawing).filter(models.Drawing.last_used_at < unused_threshold).all()
 
-    # Получаем все неиспользуемые чертежи
-    unused_drawings = db.query(models.Drawing).filter(models.Drawing.last_used_at < unused_threshold).all()
+        for drawing in unused_drawings:
+            if os.path.exists(drawing.file_path):
+                os.remove(drawing.file_path)
+            db.delete(drawing)
 
-    for drawing in unused_drawings:
-        # Удаляем файл чертежа
-        if os.path.exists(drawing.file_path):
-            os.remove(drawing.file_path)
-
-        # Удаляем запись из базы данных
-        db.delete(drawing)
-
-    db.commit()
+        db.commit()
+        logger.info("Неиспользуемые чертежи успешно удалены")
+    except Exception as e:
+        logger.error(f"Ошибка при удалении неиспользуемых чертежей: {str(e)}")
 
 # Инициализация планировщика
 scheduler = AsyncIOScheduler()
 
 def setup_scheduler():
-    scheduler.add_job(cleanup_unused_drawings, 'cron', hour=3, args=[next(get_db())])
-    scheduler.add_job(lambda: asyncio.create_task(clean_temp_folder()), 'cron', hour=3)
+    # Добавляем задачу для очистки временной папки
+    scheduler.add_job(clean_temp_folder, CronTrigger(hour=3))
+
+    # Добавляем задачу для очистки неиспользуемых чертежей
+    scheduler.add_job(cleanup_unused_drawings, CronTrigger(hour=3), args=[next(get_db())])
 
 setup_scheduler()
+
 
 @app.on_event("startup")
 async def startup_event():
     try:
         scheduler.start()
-    except SchedulerAlreadyRunningError:
-        pass  # Планировщик уже запущен, игнорируем ошибку
+        logger.info("Планировщик успешно запущен")
+    except Exception as e:
+        logger.error(f"Ошибка при запуске планировщика: {str(e)}")
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    scheduler.shutdown()
+    try:
+        scheduler.shutdown(wait=False)
+        logger.info("Планировщик успешно остановлен")
+    except Exception as e:
+        logger.error(f"Ошибка при остановке планировщика: {str(e)}")
 
 def calculate_file_hash(file_path):
     sha256_hash = hashlib.sha256()
@@ -163,16 +174,6 @@ async def read_root(request: Request):
     return templates.TemplateResponse("form.html", {"request": request})
 
 
-@scheduler.scheduled_job("cron", hour=3)  # Запускать каждый день в 3 часа ночи
-async def clean_temp_folder():
-    try:
-        shutil.rmtree(TEMP_DIR)
-        os.makedirs(TEMP_DIR)
-        logger.info("Временная папка успешно очищена")
-    except Exception as e:
-        logger.error(f"Ошибка при очистке временной папки: {str(e)}")
-
-scheduler.start()
 
 
 @app.post("/submit")
