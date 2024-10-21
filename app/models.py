@@ -30,6 +30,7 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     last_login_at = Column(DateTime(timezone=True), nullable=True)
+    otp = Column(String, nullable=True)  # Добавляем поле для хранения OTP
 
     # Хэширование пароля
     def set_password(self, password: str):

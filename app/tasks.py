@@ -27,3 +27,5 @@ async def clean_temp_folder():
         logger.info("Временная папка успешно очищена")
     except Exception as e:
         logger.error(f"Ошибка при очистке временной папки: {str(e)}")
+
+

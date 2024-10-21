@@ -20,7 +20,7 @@ from sqlalchemy.sql import func
 from PIL import Image, ImageDraw, ImageFont, ImageFile
 from typing import List, Optional
 import qrcode, os, math, time, shutil, io, base64, re, random, string, logging, json, traceback
-import aiofiles
+import aiofiles, smtplib
 from pydantic import ValidationError
 import os
 from PIL import Image, ImageDraw, ImageFont
@@ -33,7 +33,7 @@ from app.repository import get_drawing_by_hash
 import shutil
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.schedulers import SchedulerAlreadyRunningError
-from app.routes import auth
+from app.routes import auth, recovery
 from app.database import get_db
 from app.tasks import cleanup_unused_drawings, clean_temp_folder
 from apscheduler.triggers.cron import CronTrigger
@@ -85,6 +85,8 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 app.include_router(auth.router)
+# Подключение маршрутов для восстановления пароля
+app.include_router(recovery.router)
 
 # def get_db():
 #     db = SessionLocal()

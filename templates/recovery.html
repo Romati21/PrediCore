@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ru">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Подтверждение OTP</title>
+        <link rel="stylesheet" href="/static/styles.css">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    </head>
+    <body>
+        <header>
+            <h1>Подтверждение OTP</h1>
+        </header>
+        <main>
+            <form id="otpForm" action="/reset_password" method="post">
+                <div class="form-group">
+                    <label for="otp">Введите код из письма:</label>
+                    <input type="text" id="otp" name="otp" required>
+                </div>
+                </div>
+                <div class="form-group">
+                    <label for="new_password">Новый пароль:</label>
+                    <div style="position: relative;">
+                        <input type="password" id="new_password" name="new_password" required style="padding-right: 30px;">
+                        <span id="togglePassword" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); cursor: pointer;">
+                            <img src="/static/eye-off.png" alt="Показать пароль" id="eyeIcon" style="width: 20px;">
+                        </span>
+                    </div>
+                </div>
+                <button type="submit">Изменить пароль</button>
+            </form>
+        </main>
+
+        <script>
+         document.getElementById('togglePassword').addEventListener('click', function() {
+             const passwordInput = document.getElementById('new_password');
+             const eyeIcon = document.getElementById('eyeIcon');
+             if (passwordInput.type === 'password') {
+                 passwordInput.type = 'text';  // Показываем пароль
+                 eyeIcon.src = "/static/eye.png";  // Меняем иконку на "глаз открыт"
+             } else {
+                 passwordInput.type = 'password';  // Скрываем пароль
+                 eyeIcon.src = "/static/eye-off.png";  // Меняем иконку на "глаз закрыт"
+             }
+         });
+        </script>
+    </body>
+</html>
