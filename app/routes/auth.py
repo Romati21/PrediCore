@@ -9,6 +9,16 @@ from app.auth.auth import authenticate_user, create_access_token, get_password_h
 from datetime import timedelta, date
 from fastapi.templating import Jinja2Templates
 from app.auth.auth import authenticate_user
+import logging
+from datetime import datetime
+import pytz
+
+# Настраиваем логирование
+logging.basicConfig(
+    filename='auth.log',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 
 router = APIRouter()
@@ -117,6 +127,7 @@ async def admin_users_page(
 async def update_user_role(
     user_id: int,
     role_data: schemas.UserRoleUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(is_admin)
 ):
@@ -124,12 +135,24 @@ async def update_user_role(
     if db_user is None:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
 
+    old_role = db_user.role.value
+
     try:
-        # Преобразуем значение роли в соответствующий enum
         new_role = models.UserRole(role_data.role)
         db_user.role = new_role
         db.commit()
         db.refresh(db_user)
+
+        # Логируем изменение роли
+        logging.info(
+            f"Role changed - User: {db_user.username}, "
+            f"Old role: {old_role}, "
+            f"New role: {new_role.value}, "
+            f"Changed by: {current_user.username}, "
+            f"IP: {request.client.host}, "
+            f"Time: {get_moscow_time()}"
+        )
+
         return {"success": True, "new_role": new_role.value}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Неверное значение роли: {str(e)}")
@@ -137,6 +160,10 @@ async def update_user_role(
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     return templates.TemplateResponse("auth.html", {"request": request})
+
+def get_moscow_time():
+    moscow_tz = pytz.timezone('Europe/Moscow')
+    return datetime.now(moscow_tz)
 
 @router.post("/login", response_class=JSONResponse)
 async def login_user(
@@ -147,12 +174,17 @@ async def login_user(
 ):
     user = authenticate_user(db, username, password)
     if not user:
+        # Логируем неудачную попытку входа
+        logging.warning(
+            f"Failed login attempt - Username: {username}, "
+            f"IP: {request.client.host}, "
+            f"Time: {get_moscow_time()}"
+        )
         return JSONResponse(
-            content={"error": "Неверное имя пользователя или пароль"},
+            content={"error": "Неверное имя пользователя или пароль"}, 
             status_code=400
         )
 
-    # Создаем токены без дополнительной обертки
     access_token = create_access_token(data={"sub": user.username})
     refresh_token = create_refresh_token(data={"sub": user.username})
 
@@ -160,21 +192,32 @@ async def login_user(
         content={"success": True, "message": "Успешный вход"}
     )
 
-    # Сохраняем токены без дополнительного форматирования
+    # Обновленные настройки кук
+    cookie_settings = {
+        "httponly": True,
+        "samesite": 'lax',
+        "secure": True if request.url.scheme == "https" else False
+    }
+
     response.set_cookie(
         key="access_token",
-        value=access_token,  # Без префикса Bearer
-        httponly=True,
-        samesite='lax',
-        max_age=1800
+        value=access_token,
+        max_age=1800,
+        **cookie_settings
     )
 
     response.set_cookie(
         key="refresh_token",
         value=refresh_token,
-        httponly=True,
-        samesite='lax',
-        max_age=604800
+        max_age=604800,
+        **cookie_settings
+    )
+
+    # Логируем успешный вход
+    logging.info(
+        f"Successful login - Username: {username}, "
+        f"IP: {request.client.host}, "
+        f"Time: {get_moscow_time()}"
     )
 
     return response

@@ -4,6 +4,34 @@
         <meta charset="UTF-8">
         <title>Управление пользователями</title>
         <link rel="stylesheet" href="/static/styles.css">
+        <style>
+         .loader {
+             display: none;
+             border: 3px solid #f3f3f3;
+             border-radius: 50%;
+             border-top: 3px solid #3498db;
+             width: 20px;
+             height: 20px;
+             animation: spin 1s linear infinite;
+             margin-left: 10px;
+         }
+
+         @keyframes spin {
+             0% { transform: rotate(0deg); }
+             100% { transform: rotate(360deg); }
+         }
+
+         .action-cell {
+             display: flex;
+             align-items: center;
+         }
+
+         .success-message {
+             color: green;
+             margin-left: 10px;
+             display: none;
+         }
+        </style>
     </head>
     <body>
         <div class="container">
@@ -27,7 +55,8 @@
                         <td>{{ user.full_name }}</td>
                         <td>{{ user.email }}</td>
                         <td>
-                            <select class="role-select" data-user-id="{{ user.id }}">
+                            <select class="role-select" data-user-id="{{ user.id }}"
+                                    data-original-role="{{ user.role.value }}">
                                 {% for role in ['Администратор', 'Мастер', 'Наладчик', 'Рабочий'] %}
                                 <option value="{{ role }}" {% if user.role.value == role %}selected{% endif %}>
                                     {{ role }}
@@ -35,8 +64,12 @@
                                 {% endfor %}
                             </select>
                         </td>
-                        <td>
-                            <button onclick="updateRole({{ user.id }})" class="update-btn">Обновить роль</button>
+                        <td class="action-cell">
+                            <button onclick="updateRole({{ user.id }})" class="update-btn">
+                                Обновить роль
+                            </button>
+                            <div class="loader" id="loader-{{ user.id }}"></div>
+                            <span class="success-message" id="success-{{ user.id }}">✓ Обновлено</span>
                         </td>
                     </tr>
                     {% endfor %}
@@ -45,9 +78,40 @@
         </div>
 
         <script>
+         function showLoader(userId) {
+             document.getElementById(`loader-${userId}`).style.display = 'inline-block';
+             document.querySelector(`button[onclick="updateRole(${userId})"]`).disabled = true;
+         }
+
+         function hideLoader(userId) {
+             document.getElementById(`loader-${userId}`).style.display = 'none';
+             document.querySelector(`button[onclick="updateRole(${userId})"]`).disabled = false;
+         }
+
+         function showSuccess(userId) {
+             const successMsg = document.getElementById(`success-${userId}`);
+             successMsg.style.display = 'inline-block';
+             setTimeout(() => {
+                 successMsg.style.display = 'none';
+             }, 3000);
+         }
+
          async function updateRole(userId) {
              const roleSelect = document.querySelector(`select[data-user-id="${userId}"]`);
              const newRole = roleSelect.value;
+             const originalRole = roleSelect.dataset.originalRole;
+
+             if (newRole === originalRole) {
+                 alert('Роль не изменилась');
+                 return;
+             }
+
+             if (!confirm(`Вы уверены, что хотите изменить роль пользователя на "${newRole}"?`)) {
+                 roleSelect.value = originalRole;
+                 return;
+             }
+
+             showLoader(userId);
 
              try {
                  const response = await fetch(`/users/${userId}/role`, {
@@ -63,14 +127,19 @@
                  });
 
                  if (response.ok) {
-                     alert('Роль успешно обновлена');
+                     roleSelect.dataset.originalRole = newRole;
+                     showSuccess(userId);
                  } else {
                      const error = await response.json();
                      alert(`Ошибка: ${error.detail}`);
+                     roleSelect.value = originalRole;
                  }
              } catch (error) {
                  alert('Произошла ошибка при обновлении роли');
                  console.error(error);
+                 roleSelect.value = originalRole;
+             } finally {
+                 hideLoader(userId);
              }
          }
         </script>
