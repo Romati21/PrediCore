@@ -37,6 +37,8 @@ from app.routes import auth, recovery
 from app.database import get_db
 from app.tasks import cleanup_unused_drawings, clean_temp_folder
 from apscheduler.triggers.cron import CronTrigger
+from fastapi.middleware.cors import CORSMiddleware
+
 
 
 # Настройка логгирования
@@ -87,6 +89,16 @@ templates = Jinja2Templates(directory="templates")
 app.include_router(auth.router)
 # Подключение маршрутов для восстановления пароля
 app.include_router(recovery.router)
+
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # def get_db():
 #     db = SessionLocal()

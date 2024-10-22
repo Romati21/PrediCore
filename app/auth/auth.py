@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -99,10 +99,10 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.utcnow() + timedelta(minutes=30)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return {"token": encoded_jwt, "expires": expire}
+    return encoded_jwt  # Возвращаем только токен, без обертки
 
 def create_refresh_token(data: dict):
     expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)  # Используем константу
@@ -111,23 +111,49 @@ def create_refresh_token(data: dict):
     refresh_token = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return refresh_token
 
-async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+async def get_current_user(
+    request: Request,
+    db: Session = Depends(get_db)
+):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Не удалось подтвердить учетные данные",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+    # Получаем токен из кук
+    token = None
+    if 'access_token' in request.cookies:
+        auth_cookie = request.cookies.get('access_token')
+        # Удаляем кавычки и префикс Bearer, если они есть
+        token = auth_cookie.replace('"', '').replace('Bearer ', '')
+
+    if not token:
+        raise credentials_exception
+
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception
-        token_data = schemas.TokenData(username=username)
     except JWTError:
-        raise credentials_exception
-    user = db.query(models.User).filter(models.User.username == token_data.username).first()
+        # Если токен истек, пробуем использовать refresh token
+        if 'refresh_token' in request.cookies:
+            refresh_token = request.cookies.get('refresh_token')
+            try:
+                new_token = refresh_access_token(refresh_token)
+                # Здесь можно обновить куки с новым токеном
+                payload = jwt.decode(new_token, SECRET_KEY, algorithms=[ALGORITHM])
+                username = payload.get("sub")
+            except JWTError:
+                raise credentials_exception
+        else:
+            raise credentials_exception
+
+    user = db.query(models.User).filter(models.User.username == username).first()
     if user is None:
         raise credentials_exception
+
     return user
 
 async def get_current_active_user(current_user: schemas.User = Depends(get_current_user)):
@@ -135,7 +161,13 @@ async def get_current_active_user(current_user: schemas.User = Depends(get_curre
         raise HTTPException(status_code=400, detail="Неактивный пользователь")
     return current_user
 
-def is_admin(user: schemas.User = Depends(get_current_active_user)):
-    if user.role != models.UserRole.MASTER:
-        raise HTTPException(status_code=403, detail="Недостаточно прав")
-    return user
+def is_admin(
+    request: Request,
+    current_user: models.User = Depends(get_current_user)
+):
+    if not current_user or current_user.role != models.UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Недостаточно прав для выполнения операции"
+        )
+    return current_user

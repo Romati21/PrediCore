@@ -17,6 +17,9 @@ class UserRole(enum.Enum):
     ADJUSTER = "Наладчик"
     WORKER = "Рабочий"
 
+    def __str__(self):
+        return self.value
+
 class User(Base):
     __tablename__ = "users"
 
