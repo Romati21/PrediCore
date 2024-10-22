@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ru">
+    <head>
+        <meta charset="UTF-8">
+        <link rel="stylesheet" href="/static/styles.css">
+        <title>Изменение роли пользователя</title>
+    </head>
+    <body>
+        <h1>Изменение роли пользователя</h1>
+
+        <form action="/users/{{ user.id }}/role" method="post">
+            <label for="role">Выберите новую роль для {{ user.full_name }}:</label>
+            <select name="role" id="role">
+                <option value="ADMIN">Администратор</option>
+                <option value="MASTER">Мастер</option>
+                <option value="ADJUSTER">Наладчик</option>
+                <option value="WORKER">Рабочий</option>
+            </select>
+            <button type="submit">Изменить роль</button>
+        </form>
+
+        {% if message %}
+        <p>{{ message }}</p>
+        {% endif %}
+    </body>
+</html>

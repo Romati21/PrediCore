@@ -12,6 +12,7 @@ class Shift(enum.Enum):
     NIGHT = "Ночь"
 
 class UserRole(enum.Enum):
+    ADMIN = "Администратор"
     MASTER = "Мастер"
     ADJUSTER = "Наладчик"
     WORKER = "Рабочий"
@@ -31,6 +32,8 @@ class User(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     otp = Column(String, nullable=True)  # Добавляем поле для хранения OTP
+    failed_login_attempts = Column(Integer, default=0)
+    last_failed_login = Column(DateTime, nullable=True)
 
     # Хэширование пароля
     def set_password(self, password: str):

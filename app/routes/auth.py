@@ -8,6 +8,7 @@ from app.database import get_db
 from app.auth.auth import authenticate_user, create_access_token, get_password_hash, get_current_active_user, is_admin, create_refresh_token, refresh_access_token
 from datetime import timedelta, date
 from fastapi.templating import Jinja2Templates
+from app.auth.auth import authenticate_user
 
 
 router = APIRouter()

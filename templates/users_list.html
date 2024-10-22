@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ru">
+    <head>
+        <meta charset="UTF-8">
+        <link rel="stylesheet" href="/static/styles.css">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Управление пользователями</title>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    </head>
+    <body>
+        <header>
+            <h1>Список пользователей</h1>
+        </header>
+        <main>
+            <table border="1">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Имя пользователя</th>
+                        <th>Полное имя</th>
+                        <th>Электронная почта</th>
+                        <th>Текущая роль</th>
+                        <th>Изменить роль</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in users %}
+                    <tr>
+                        <td>{{ user.id }}</td>
+                        <td>{{ user.username }}</td>
+                        <td>{{ user.full_name }}</td>
+                        <td>{{ user.email }}</td>
+                        <td>{{ user.role }}</td>
+                        <td>
+                            <form action="/users/{{ user.id }}/role" method="post">
+                                <select name="role">
+                                    <option value="ADMIN" {% if user.role == "ADMIN" %}selected{% endif %}>Администратор</option>
+                                    <option value="MASTER" {% if user.role == "MASTER" %}selected{% endif %}>Мастер</option>
+                                    <option value="ADJUSTER" {% if user.role == "ADJUSTER" %}selected{% endif %}>Наладчик</option>
+                                    <option value="WORKER" {% if user.role == "WORKER" %}selected{% endif %}>Рабочий</option>
+                                </select>
+                                <button type="submit">Сохранить</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% if message %}
+                    <p style="color:green;">{{ message }}</p>
+                    {% endif %}
+
+                    {% endfor %}
+                </tbody>
+            </table>
+        </main>
+        <script>
+         // Отправляем AJAX-запрос для получения списка пользователей
+         $.ajax({
+             url: '/admin/users',
+             type: 'GET',
+             beforeSend: function(xhr) {
+                 // Извлекаем токен access_token из cookie
+                 const token = document.cookie.split('; ').find(row => row.startsWith('access_token=')).split('=')[1];
+
+                 // Убираем лишние кавычки, если они есть
+                 const cleanToken = token.replace(/(^"|"$)/g, '');
+
+                 // Устанавливаем заголовок Authorization с токеном
+                 xhr.setRequestHeader('Authorization', cleanToken);
+             },
+             success: function(response) {
+                 // Заполняем таблицу данными о пользователях
+                 const users = response.users;
+                 const tableBody = $('#users-table tbody');
+                 users.forEach(user => {
+                     tableBody.append(`
+                        <tr>
+                            <td>${user.id}</td>
+                            <td>${user.username}</td>
+                            <td>${user.full_name}</td>
+                            <td>${user.email}</td>
+                            <td>${user.role}</td>
+                            <td>
+                                <form action="/users/${user.id}/role" method="post">
+                                    <select name="role">
+                                        <option value="ADMIN" ${user.role === 'ADMIN' ? 'selected' : ''}>Администратор</option>
+                                        <option value="MASTER" ${user.role === 'MASTER' ? 'selected' : ''}>Мастер</option>
+                                        <option value="ADJUSTER" ${user.role === 'ADJUSTER' ? 'selected' : ''}>Наладчик</option>
+                                        <option value="WORKER" ${user.role === 'WORKER' ? 'selected' : ''}>Рабочий</option>
+                                    </select>
+                                    <button type="submit">Сохранить</button>
+                                </form>
+                            </td>
+                        </tr>
+                     `);
+                 });
+             },
+             error: function(xhr) {
+                 console.error('Ошибка:', xhr.responseText);
+             }
+         });
+        </script>
+    </body>
+</html>

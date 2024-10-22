@@ -12,6 +12,7 @@ class TokenData(BaseModel):
     username: Optional[str] = None
 
 class UserRole(str, Enum):
+    ADMIN = "Администратор"
     MASTER = "Мастер"
     ADJUSTER = "Наладчик"
     WORKER = "Рабочий"

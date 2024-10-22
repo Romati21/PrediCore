@@ -12,7 +12,7 @@ from app.models import UserRole
 import secrets
 
 # Настройки JWT
-SECRET_KEY = secrets.token_hex(32)  # Генерирует 64-символьный 
+SECRET_KEY = secrets.token_hex(32)  # Генерирует 64-символьный
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
@@ -32,11 +32,11 @@ def verify_password(plain_password, hashed_password):
 def get_password_hash(password):
     return pwd_context.hash(password)
 
-def authenticate_user(db: Session, username: str, password: str):
-    user = db.query(User).filter(User.username == username).first()
-    if not user or not verify_password(password, user.password_hash):
-        return False
-    return user
+# def authenticate_user(db: Session, username: str, password: str):
+#     user = db.query(User).filter(User.username == username).first()
+#     if not user or not verify_password(password, user.password_hash):
+#         return False
+#     return user
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()

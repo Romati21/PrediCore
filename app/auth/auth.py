@@ -9,6 +9,10 @@ from app.database import get_db
 import secrets
 from jose import ExpiredSignatureError
 
+from fastapi import HTTPException
+# from app.auth.auth import verify_password
+
+
 # Настройки JWT
 SECRET_KEY = secrets.token_hex(32)  # Генерирует 64-символьный
 ALGORITHM = "HS256"
@@ -18,6 +22,41 @@ REFRESH_TOKEN_EXPIRE_DAYS = 7  # Refresh-токен истекает через 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
+MAX_FAILED_ATTEMPTS = 5  # Максимум неудачных попыток
+LOCKOUT_TIME = 15  # Время блокировки в минутах после 5 неудачных попыток
+
+def authenticate_user(db: Session, username: str, password: str):
+    user = db.query(models.User).filter(models.User.username == username).first()
+
+    if not user:
+        return False
+
+    # Если поле failed_login_attempts равно None, присваиваем ему 0
+    if user.failed_login_attempts is None:
+        user.failed_login_attempts = 0
+        db.commit()
+
+    # Проверяем, не заблокирован ли пользователь
+    if user.failed_login_attempts >= MAX_FAILED_ATTEMPTS:
+        time_since_last_failed = datetime.utcnow() - user.last_failed_login
+        if time_since_last_failed < timedelta(minutes=LOCKOUT_TIME):
+            raise HTTPException(status_code=403, detail="Аккаунт временно заблокирован. Попробуйте позже.")
+        else:
+            # Сбрасываем счетчик попыток, если прошло достаточно времени
+            user.failed_login_attempts = 0
+            db.commit()
+
+    # Проверяем пароль
+    if not verify_password(password, user.password_hash):
+        user.failed_login_attempts += 1
+        user.last_failed_login = datetime.utcnow()
+        db.commit()
+        return False
+
+    # Если авторизация успешна, сбрасываем счетчик
+    user.failed_login_attempts = 0
+    db.commit()
+    return user
 
 
 def refresh_access_token(refresh_token: str):
@@ -49,11 +88,11 @@ def verify_password(plain_password, hashed_password):
 def get_password_hash(password):
     return pwd_context.hash(password)
 
-def authenticate_user(db: Session, username: str, password: str):
-    user = db.query(models.User).filter(models.User.username == username).first()
-    if not user or not verify_password(password, user.password_hash):
-        return False
-    return user
+# def authenticate_user(db: Session, username: str, password: str):
+#     user = db.query(models.User).filter(models.User.username == username).first()
+#     if not user or not verify_password(password, user.password_hash):
+#         return False
+#     return user
 
 def create_access_token(data: dict, expires_delta: timedelta = None):
     to_encode = data.copy()
