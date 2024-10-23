@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Dict, Any, Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from app.models import User, UserSession
@@ -10,6 +10,7 @@ from app.schemas import UserCreate, User as UserSchema
 from app.database import SessionLocal
 from app.models import UserRole
 import secrets
+import uuid
 
 # Настройки JWT
 SECRET_KEY = secrets.token_hex(32)  # Генерирует 64-символьный
@@ -38,33 +39,49 @@ def get_password_hash(password):
 #         return False
 #     return user
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+def create_access_token(
+    data: dict,
+    request: Request = None,
+    expires_delta: timedelta = None
+) -> Dict[str, str]:
     to_encode = data.copy()
+    jti = str(uuid.uuid4())
+
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 
-async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Не удалось подтвердить учетные данные",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
-            raise credentials_exception
-    except JWTError:
-        raise credentials_exception
-    user = db.query(User).filter(User.username == username).first()
-    if user is None:
-        raise credentials_exception
-    return user
+    to_encode.update({
+        "exp": expire,
+        "jti": jti,
+        "type": "access"
+    })
+
+    if request:
+        to_encode["ip"] = request.client.host
+        to_encode["user_agent"] = request.headers.get("user-agent")
+
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return {"token": encoded_jwt, "jti": jti}
+
+# async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+#     credentials_exception = HTTPException(
+#         status_code=status.HTTP_401_UNAUTHORIZED,
+#         detail="Не удалось подтвердить учетные данные",
+#         headers={"WWW-Authenticate": "Bearer"},
+#     )
+#     try:
+#         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+#         username: str = payload.get("sub")
+#         if username is None:
+#             raise credentials_exception
+#     except JWTError:
+#         raise credentials_exception
+#     user = db.query(User).filter(User.username == username).first()
+#     if user is None:
+#         raise credentials_exception
+#     return user
 
 def create_user(db: Session, user: UserCreate):
     hashed_password = get_password_hash(user.password)

@@ -8,9 +8,11 @@ from app import models, schemas
 from app.database import get_db
 import secrets
 from jose import ExpiredSignatureError
-
-from fastapi import HTTPException
-# from app.auth.auth import verify_password
+import uuid
+from ipaddress import ip_address, IPv4Address, IPv6Address
+from user_agents import parse
+from fastapi import Request, HTTPException
+from typing import Dict, Any, Optional
 
 
 # Настройки JWT
@@ -94,22 +96,127 @@ def get_password_hash(password):
 #         return False
 #     return user
 
-def create_access_token(data: dict, expires_delta: timedelta = None):
+def create_access_token(
+    data: dict,
+    request: Request = None,
+    expires_delta: timedelta = None
+) -> Dict[str, str]:
     to_encode = data.copy()
+    jti = str(uuid.uuid4())
+
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=30)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt  # Возвращаем только токен, без обертки
+        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 
-def create_refresh_token(data: dict):
-    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)  # Используем константу
+    to_encode.update({
+        "exp": expire,
+        "jti": jti,
+        "type": "access"
+    })
+
+    if request:
+        to_encode["ip"] = request.client.host
+        to_encode["user_agent"] = request.headers.get("user-agent")
+
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return {"token": encoded_jwt, "jti": jti}
+
+async def validate_token(token: str, db: Session, request: Request = None) -> dict:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+
+        # Проверяем, не отозван ли токен
+        jti = payload.get("jti")
+        if not jti:
+            raise HTTPException(status_code=401, detail="Invalid token format")
+
+        revoked_token = db.query(RevokedToken).filter(
+            RevokedToken.jti == jti
+        ).first()
+
+        if revoked_token:
+            raise HTTPException(status_code=401, detail="Token has been revoked")
+
+        # Проверяем IP-адрес, если токен содержит эту информацию
+        if request and "ip" in payload:
+            token_ip = ip_address(payload["ip"])
+            request_ip = ip_address(request.client.host)
+
+            # Проверяем, совпадают ли IP-адреса
+            if token_ip != request_ip:
+                logging.warning(
+                    f"IP address mismatch - Token IP: {token_ip}, "
+                    f"Request IP: {request_ip}, "
+                    f"User: {payload.get('sub')}"
+                )
+                raise HTTPException(
+                    status_code=401,
+                    detail="IP address mismatch"
+                )
+
+        return payload
+
+    except JWTError as e:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+async def revoke_token(
+    token: str,
+    reason: str,
+    db: Session,
+    current_user: models.User
+) -> None:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        jti = payload.get("jti")
+        expires_at = datetime.fromtimestamp(payload.get("exp"))
+
+        revoked_token = RevokedToken(
+            jti=jti,
+            revoked_at=datetime.utcnow(),
+            expires_at=expires_at,
+            revoked_by_user_id=current_user.id,
+            reason=reason,
+            token_type=payload.get("type", "unknown")
+        )
+
+        db.add(revoked_token)
+        db.commit()
+
+        logging.info(
+            f"Token revoked - JTI: {jti}, "
+            f"User: {current_user.username}, "
+            f"Reason: {reason}"
+        )
+
+    except JWTError:
+        raise HTTPException(status_code=400, detail="Invalid token format")
+
+def create_refresh_token(
+    data: dict,
+    request: Request = None,
+    expires_delta: timedelta = None
+) -> Dict[str, str]:
     to_encode = data.copy()
-    to_encode.update({"exp": expire})
-    refresh_token = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return refresh_token
+    jti = str(uuid.uuid4())
+
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+
+    to_encode.update({
+        "exp": expire,
+        "jti": jti,
+        "type": "refresh"
+    })
+
+    if request:
+        to_encode["ip"] = request.client.host
+        to_encode["user_agent"] = request.headers.get("user-agent")
+
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return {"token": encoded_jwt, "jti": jti}
 
 async def get_current_user(
     request: Request,

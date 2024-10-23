@@ -1,17 +1,31 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Form
+from jose import JWTError, jwt
+from app.models import User, UserSession, RevokedToken
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from app import models, schemas
 from app.database import get_db
-from app.auth.auth import authenticate_user, create_access_token, get_password_hash, get_current_active_user, is_admin, create_refresh_token, refresh_access_token, get_current_user
+# from app.routes.auth import access_token_data
+from app.auth.auth import authenticate_user, create_access_token, get_password_hash, get_current_active_user, is_admin, create_refresh_token, refresh_access_token, get_current_user, SECRET_KEY, ALGORITHM
 from datetime import timedelta, date
 from fastapi.templating import Jinja2Templates
-from app.auth.auth import authenticate_user
+from typing import Dict, Any
+from app.auth.auth import authenticate_user, revoke_token
 import logging
 from datetime import datetime
 import pytz
+from contextlib import contextmanager
+
+@contextmanager
+def transaction(db: Session):
+    try:
+        yield
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
 # Настраиваем логирование
 logging.basicConfig(
@@ -172,52 +186,174 @@ async def login_user(
     password: str = Form(...),
     db: Session = Depends(get_db)
 ):
+    # Проверка на количество активных сессий
     user = authenticate_user(db, username, password)
     if not user:
-        # Логируем неудачную попытку входа
         logging.warning(
             f"Failed login attempt - Username: {username}, "
-            f"IP: {request.client.host}, "
-            f"Time: {get_moscow_time()}"
+            f"IP: {request.client.host}"
         )
         return JSONResponse(
-            content={"error": "Неверное имя пользователя или пароль"}, 
+            content={"error": "Неверное имя пользователя или пароль"},
             status_code=400
         )
 
-    access_token = create_access_token(data={"sub": user.username})
-    refresh_token = create_refresh_token(data={"sub": user.username})
+    active_sessions = db.query(UserSession).filter(
+        UserSession.user_id == user.id,
+        UserSession.is_active == True
+    ).count()
 
-    response = JSONResponse(
-        content={"success": True, "message": "Успешный вход"}
+    MAX_ACTIVE_SESSIONS = 5
+    if active_sessions >= MAX_ACTIVE_SESSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="Достигнуто максимальное количество активных сессий"
+        )
+
+    # Создаем токены с информацией об IP и User-Agent
+    access_token_data = create_access_token(
+        data={"sub": user.username},
+        request=request
+    )
+    refresh_token_data = create_refresh_token(
+        data={"sub": user.username},
+        request=request
     )
 
-    # Обновленные настройки кук
+    # Создаем новую сессию
+    user_agent_string = request.headers.get("user-agent", "")
+
+    session = UserSession(
+        user_id=user.id,
+        ip_address=request.client.host,
+        user_agent=user_agent_string,
+        last_activity=datetime.utcnow(),
+        access_token_jti=access_token_data.get("jti"),
+        refresh_token_jti=refresh_token_data.get("jti")
+    )
+
+    db.add(session)
+    db.commit()
+
+    response = JSONResponse(content={"success": True, "message": "Успешный вход"})
+
+    # Настройки безопасности для cookies
     cookie_settings = {
         "httponly": True,
         "samesite": 'lax',
-        "secure": True if request.url.scheme == "https" else False
+        "secure": request.url.scheme == "https"
     }
 
     response.set_cookie(
         key="access_token",
-        value=access_token,
-        max_age=1800,
+        value=access_token_data["token"],
+        max_age=1800,  # 30 минут
         **cookie_settings
     )
 
     response.set_cookie(
         key="refresh_token",
-        value=refresh_token,
-        max_age=604800,
+        value=refresh_token_data["token"],
+        max_age=604800,  # 7 дней
         **cookie_settings
     )
 
-    # Логируем успешный вход
     logging.info(
         f"Successful login - Username: {username}, "
         f"IP: {request.client.host}, "
-        f"Time: {get_moscow_time()}"
+        f"Session ID: {session.id}"
     )
 
     return response
+
+
+@router.post("/logout")
+async def logout(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    # Находим текущую сессию по access token
+    access_token = request.cookies.get("access_token")
+    if access_token:
+        try:
+            payload = jwt.decode(access_token, SECRET_KEY, algorithms=[ALGORITHM])
+            jti = payload.get("jti")
+            if jti:
+                current_session = db.query(models.UserSession).filter(
+                    models.UserSession.access_token_jti == jti,
+                    models.UserSession.is_active == True
+                ).first()
+
+                if current_session:
+                    current_session.revoke_tokens(
+                        db,
+                        current_user,
+                        "User logout"
+                    )
+        except JWTError:
+            logging.warning("Failed to decode token during logout")
+
+    response = JSONResponse(content={"message": "Successfully logged out"})
+    response.delete_cookie("access_token")
+    response.delete_cookie("refresh_token")
+
+    return response
+
+@router.post("/logout/all")
+async def logout_all_sessions(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Выход из всех сессий пользователя"""
+    current_user.revoke_all_sessions(db, current_user, "User initiated logout from all sessions")
+
+    response = JSONResponse(content={"message": "Successfully logged out from all sessions"})
+    response.delete_cookie("access_token")
+    response.delete_cookie("refresh_token")
+
+    return response
+
+@router.post("/revoke-all-tokens")
+async def revoke_all_user_tokens(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(is_admin)
+):
+    # Получаем все активные сессии пользователя
+    user_sessions = db.query(UserSession).filter(
+        UserSession.user_id == user_id,
+        UserSession.is_active == True
+    ).all()
+
+    for session in user_sessions:
+        if session.access_token_jti:
+            await revoke_token(
+                session.access_token_jti,
+                "Admin revoked all tokens",
+                db,
+                current_user
+            )
+        if session.refresh_token_jti:
+            await revoke_token(
+                session.refresh_token_jti,
+                "Admin revoked all tokens",
+                db,
+                current_user
+            )
+        session.is_active = False
+
+    db.commit()
+    return {"message": "All tokens have been revoked"}
+
+async def cleanup_expired_tokens(db: Session):
+    try:
+        current_time = datetime.utcnow()
+        db.query(RevokedToken).filter(
+            RevokedToken.expires_at < current_time
+        ).delete()
+        db.commit()
+    except Exception as e:
+        logging.error(f"Error during token cleanup: {str(e)}")
+        db.rollback()

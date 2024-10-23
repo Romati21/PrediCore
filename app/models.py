@@ -1,9 +1,11 @@
-from sqlalchemy import Column, Integer, String, DateTime, Date, Time, Boolean, ForeignKey, Enum, CheckConstraint, SmallInteger
+from sqlalchemy import Column, Integer, String, DateTime, Date, Time, Boolean, ForeignKey, Enum, CheckConstraint, SmallInteger, Index
+from sqlalchemy.orm import Session
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from sqlalchemy.ext.declarative import declarative_base
 from passlib.hash import bcrypt  # Для хэширования паролей
 import enum
+from datetime import date, datetime, timedelta
 
 Base = declarative_base()
 
@@ -48,16 +50,74 @@ class User(Base):
     def check_password(self, password: str) -> bool:
         return bcrypt.verify(password, self.password_hash)
 
+class RevokedToken(Base):
+    __tablename__ = "revoked_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    jti = Column(String(36), unique=True, nullable=False)  # JWT Token ID
+    session_id = Column(Integer, ForeignKey("user_sessions.id"), nullable=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    revoked_by_user_id = Column(Integer, ForeignKey("users.id"))
+    reason = Column(String(255))
+    token_type = Column(String(20))  # access или refresh
+
+    # Связи с другими таблицами
+    session = relationship("UserSession", back_populates="revoked_tokens")
+    revoked_by = relationship("User", backref="revoked_tokens")
+
+    __table_args__ = (
+        Index('idx_expires_at', 'expires_at'),  # Индекс для быстрой очистки
+        Index('idx_session_token_type', 'session_id', 'token_type'),  # Составной индекс
+    )
+
 class UserSession(Base):
     __tablename__ = "user_sessions"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    token = Column(String(255), unique=True, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    expires_at = Column(DateTime(timezone=True), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    ip_address = Column(String(45), nullable=False)  # Поддержка IPv6
+    user_agent = Column(String(255))
+    last_activity = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    is_active = Column(Boolean, default=True)
+    access_token_jti = Column(String(36), unique=True)
+    refresh_token_jti = Column(String(36), unique=True)
 
+    # Связи с другими таблицами
     user = relationship("User", back_populates="sessions")
+    revoked_tokens = relationship("RevokedToken", back_populates="session", cascade="all, delete-orphan")
+
+    def revoke_tokens(self, db: Session, revoked_by_user: User, reason: str):
+        """Отзыв всех токенов сессии"""
+        current_time = datetime.utcnow()
+
+        if self.access_token_jti:
+            revoked_access = RevokedToken(
+                jti=self.access_token_jti,
+                session_id=self.id,
+                revoked_at=current_time,
+                expires_at=current_time + timedelta(minutes=30),  # Стандартное время жизни access token
+                revoked_by_user_id=revoked_by_user.id,
+                reason=reason,
+                token_type="access"
+            )
+            db.add(revoked_access)
+
+        if self.refresh_token_jti:
+            revoked_refresh = RevokedToken(
+                jti=self.refresh_token_jti,
+                session_id=self.id,
+                revoked_at=current_time,
+                expires_at=current_time + timedelta(days=7),  # Стандартное время жизни refresh token
+                revoked_by_user_id=revoked_by_user.id,
+                reason=reason,
+                token_type="refresh"
+            )
+            db.add(revoked_refresh)
+
+        self.is_active = False
+        db.commit()
 
 User.sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
 
