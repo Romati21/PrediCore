@@ -1,6 +1,6 @@
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
+from jose import JWTError, jwt, ExpiredSignatureError
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
@@ -13,6 +13,8 @@ from ipaddress import ip_address, IPv4Address, IPv6Address
 from user_agents import parse
 from fastapi import Request, HTTPException
 from typing import Dict, Any, Optional
+from fastapi.responses import Response
+from starlette.background import BackgroundTask
 
 
 # Настройки JWT
@@ -61,17 +63,21 @@ def authenticate_user(db: Session, username: str, password: str):
     return user
 
 
-def refresh_access_token(refresh_token: str):
+def refresh_access_token(refresh_token: str) -> Dict[str, str]:
     try:
+        # Декодируем refresh token
         payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
             raise HTTPException(
                 status_code=401,
-                detail="Invalid token"
+                detail="Invalid refresh token"
             )
-        new_access_token = create_access_token(data={"sub": username})
-        return new_access_token
+
+        # Создаем новый access token
+        new_token_data = create_access_token(data={"sub": username})
+        return new_token_data
+
     except ExpiredSignatureError:
         raise HTTPException(
             status_code=401,
@@ -80,7 +86,7 @@ def refresh_access_token(refresh_token: str):
     except JWTError:
         raise HTTPException(
             status_code=401,
-            detail="Invalid token"
+            detail="Invalid refresh token"
         )
 
 
@@ -221,7 +227,7 @@ def create_refresh_token(
 async def get_current_user(
     request: Request,
     db: Session = Depends(get_db)
-):
+) -> models.User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Не удалось подтвердить учетные данные",
@@ -232,30 +238,40 @@ async def get_current_user(
     token = None
     if 'access_token' in request.cookies:
         auth_cookie = request.cookies.get('access_token')
-        # Удаляем кавычки и префикс Bearer, если они есть
         token = auth_cookie.replace('"', '').replace('Bearer ', '')
 
     if not token:
         raise credentials_exception
 
     try:
+        # Пытаемся декодировать access token
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception
-    except JWTError:
-        # Если токен истек, пробуем использовать refresh token
+
+    except ExpiredSignatureError:
+        # Специальная обработка истекшего токена
         if 'refresh_token' in request.cookies:
             refresh_token = request.cookies.get('refresh_token')
             try:
-                new_token = refresh_access_token(refresh_token)
-                # Здесь можно обновить куки с новым токеном
-                payload = jwt.decode(new_token, SECRET_KEY, algorithms=[ALGORITHM])
+                # Пробуем создать новый access token
+                new_token_data = refresh_access_token(refresh_token)
+
+                # Устанавливаем новый токен в куки
+                request.state.new_access_token = new_token_data["token"]
+
+                # Декодируем новый токен
+                payload = jwt.decode(new_token_data["token"], SECRET_KEY, algorithms=[ALGORITHM])
                 username = payload.get("sub")
-            except JWTError:
+
+            except (JWTError, ExpiredSignatureError):
                 raise credentials_exception
         else:
             raise credentials_exception
+
+    except JWTError:
+        raise credentials_exception
 
     user = db.query(models.User).filter(models.User.username == username).first()
     if user is None:

@@ -121,22 +121,32 @@ async def admin_users_page(
             detail="Недостаточно прав для доступа"
         )
 
-    # Получаем всех пользователей с их ролями
     users = db.query(models.User).all()
 
-    # Добавляем отладочную информацию
-    for user in users:
-        print(f"User {user.username} has role: {user.role.value}")
-
-    return templates.TemplateResponse(
+    # Создаем ответ
+    response = templates.TemplateResponse(
         "users_list.html",
         {
             "request": request,
             "users": users,
             "current_user": current_user,
-            "UserRole": models.UserRole  # Передаем enum в шаблон
+            "UserRole": models.UserRole
         }
     )
+
+    # Если был создан новый access token, обновляем куки
+    new_token = getattr(request.state, 'new_access_token', None)
+    if new_token:
+        response.set_cookie(
+            key="access_token",
+            value=new_token,
+            httponly=True,
+            samesite='lax',
+            secure=request.url.scheme == "https",
+            max_age=1800
+        )
+
+    return response
 
 @router.put("/users/{user_id}/role")
 async def update_user_role(
@@ -255,7 +265,7 @@ async def login_user(
         max_age=1800,
         **cookie_settings
     )
-    
+
     response.set_cookie(
         key="refresh_token",
         value=refresh_token_data["token"],
