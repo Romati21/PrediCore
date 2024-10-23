@@ -17,6 +17,7 @@ import logging
 from datetime import datetime
 import pytz
 from contextlib import contextmanager
+from app.services import session_service
 
 @contextmanager
 def transaction(db: Session):
@@ -198,6 +199,7 @@ async def login_user(
             status_code=400
         )
 
+    # Проверяем количество активных сессий
     active_sessions = db.query(UserSession).filter(
         UserSession.user_id == user.id,
         UserSession.is_active == True
@@ -210,6 +212,9 @@ async def login_user(
             detail="Достигнуто максимальное количество активных сессий"
         )
 
+
+    # Очищаем старые сессии перед созданием новой
+    session_service.cleanup_old_sessions(db, user.id)
     # Создаем токены с информацией об IP и User-Agent
     access_token_data = create_access_token(
         data={"sub": user.username},
@@ -220,24 +225,24 @@ async def login_user(
         request=request
     )
 
-    # Создаем новую сессию
-    user_agent_string = request.headers.get("user-agent", "")
-
-    session = UserSession(
-        user_id=user.id,
+    # Создаем сессию
+    session = session_service.create_session(
+        db=db,
+        user=user,
         ip_address=request.client.host,
-        user_agent=user_agent_string,
-        last_activity=datetime.utcnow(),
-        access_token_jti=access_token_data.get("jti"),
-        refresh_token_jti=refresh_token_data.get("jti")
+        user_agent=request.headers.get("user-agent", ""),
+        access_token_jti=access_token_data["jti"],
+        refresh_token_jti=refresh_token_data["jti"]
     )
 
-    db.add(session)
-    db.commit()
+    if not session:
+        raise HTTPException(
+            status_code=400,
+            detail="Ошибка создания сессии"
+        )
 
     response = JSONResponse(content={"success": True, "message": "Успешный вход"})
 
-    # Настройки безопасности для cookies
     cookie_settings = {
         "httponly": True,
         "samesite": 'lax',
@@ -247,21 +252,15 @@ async def login_user(
     response.set_cookie(
         key="access_token",
         value=access_token_data["token"],
-        max_age=1800,  # 30 минут
+        max_age=1800,
         **cookie_settings
     )
-
+    
     response.set_cookie(
         key="refresh_token",
         value=refresh_token_data["token"],
-        max_age=604800,  # 7 дней
+        max_age=604800,
         **cookie_settings
-    )
-
-    logging.info(
-        f"Successful login - Username: {username}, "
-        f"IP: {request.client.host}, "
-        f"Session ID: {session.id}"
     )
 
     return response
