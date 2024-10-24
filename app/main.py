@@ -38,7 +38,7 @@ from app.database import get_db
 from app.tasks import cleanup_unused_drawings, clean_temp_folder
 from apscheduler.triggers.cron import CronTrigger
 from fastapi.middleware.cors import CORSMiddleware
-from app.middleware.token_refresh import TokenRefreshMiddleware
+from app.middleware.token_refresh import TokenRefreshMiddleware, TokenUpdateMiddleware
 
 
 # Настройка логгирования
@@ -91,6 +91,7 @@ app.include_router(auth.router)
 app.include_router(recovery.router)
 
 app.add_middleware(TokenRefreshMiddleware)
+app.add_middleware(TokenUpdateMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

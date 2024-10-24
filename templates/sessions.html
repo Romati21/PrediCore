@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ru">
+    <head>
+        <meta charset="UTF-8">
+        <title>Управление сессиями</title>
+        <link rel="stylesheet" href="/static/styles.css">
+        <style>
+         .session-table {
+             width: 100%;
+             border-collapse: collapse;
+             margin-top: 20px;
+         }
+         .session-table th, .session-table td {
+             padding: 12px;
+             border: 1px solid #ddd;
+             text-align: left;
+         }
+         .session-table th {
+             background-color: #f4f4f4;
+         }
+         .current-session {
+             background-color: #e8f5e9;
+         }
+         .button-group {
+             margin: 20px 0;
+         }
+         .terminate-btn {
+             background-color: #f44336;
+             color: white;
+             border: none;
+             padding: 8px 16px;
+             cursor: pointer;
+             border-radius: 4px;
+         }
+         .terminate-all-btn {
+             background-color: #d32f2f;
+             color: white;
+             border: none;
+             padding: 10px 20px;
+             cursor: pointer;
+             border-radius: 4px;
+         }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Управление сессиями</h1>
+            {% if is_temp_access %}
+            <div class="alert alert-warning">
+                Вы находитесь в режиме временного доступа. Для продолжения работы необходимо завершить неиспользуемые сессии.
+            </div>
+            {% endif %}
+            <div class="button-group">
+                <button onclick="terminateAllSessions()" class="terminate-all-btn">
+                    Завершить все сессии
+                </button>
+            </div>
+            <table class="session-table">
+                <thead>
+                    <tr>
+                        <th>Устройство</th>
+                        <th>IP-адрес</th>
+                        <th>Последняя активность</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for session in sessions %}
+                    <tr {% if session.id == current_session_id %}class="current-session"{% endif %}>
+                        <td>{{ session.user_agent }}</td>
+                        <td>{{ session.ip_address }}</td>
+                        <td>{{ session.last_activity.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                        <td>
+                            <button onclick="terminateSession({{ session.id }})" class="terminate-btn">
+                                Завершить
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <!-- Добавим кнопку для возврата к входу -->
+            {% if is_temp_access %}
+            <div class="action-buttons">
+                <button onclick="window.location.href='/login'" class="back-btn">
+                    Вернуться к входу
+                </button>
+            </div>
+            {% endif %}
+        </div>
+
+        <script>
+         async function terminateSession(sessionId) {
+             if (!confirm('Вы уверены, что хотите завершить эту сессию?')) {
+                 return;
+             }
+
+             // Получаем temp_token из URL если он есть
+             const urlParams = new URLSearchParams(window.location.search);
+             const tempToken = urlParams.get('temp_token');
+
+             try {
+                 const url = tempToken
+                           ? `/sessions/${sessionId}/terminate?temp_token=${tempToken}`
+                           : `/sessions/${sessionId}/terminate`;
+
+                 const response = await fetch(url, {
+                     method: 'POST',
+                     headers: {
+                         'Content-Type': 'application/json'
+                     },
+                     credentials: 'include'
+                 });
+
+                 if (response.ok) {
+                     // Обновляем страницу с сохранением параметра temp_token
+                     if (tempToken) {
+                         window.location.href = `/sessions?temp_token=${tempToken}`;
+                     } else {
+                         window.location.reload();
+                     }
+                 } else {
+                     const error = await response.json();
+                     alert(`Ошибка: ${error.detail}`);
+                 }
+             } catch (error) {
+                 alert('Произошла ошибка при завершении сессии');
+                 console.error(error);
+             }
+         }
+
+         async function terminateAllSessions() {
+             if (!confirm('Вы уверены, что хотите завершить все сессии? Вам придется войти заново.')) {
+                 return;
+             }
+
+             const urlParams = new URLSearchParams(window.location.search);
+             const tempToken = urlParams.get('temp_token');
+
+             try {
+                 const url = tempToken
+                           ? `/sessions/terminate-all?temp_token=${tempToken}`
+                           : `/sessions/terminate-all`;
+
+                 const response = await fetch(url, {
+                     method: 'POST',
+                     headers: {
+                         'Content-Type': 'application/json'
+                     },
+                     credentials: 'include'
+                 });
+
+                 if (response.ok) {
+                     window.location.href = '/login';
+                 } else {
+                     const error = await response.json();
+                     alert(`Ошибка: ${error.detail}`);
+                 }
+             } catch (error) {
+                 alert('Произошла ошибка при завершении сессий');
+                 console.error(error);
+             }
+         }
+        </script>
+    </body>
+</html>

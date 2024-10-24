@@ -5,14 +5,46 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Авторизация</title>
         <link rel="stylesheet" href="/static/styles.css">
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+        <style>
+         .alert {
+             padding: 15px;
+             margin-bottom: 20px;
+             border: 1px solid transparent;
+             border-radius: 4px;
+         }
+
+         .alert-warning {
+             color: #856404;
+             background-color: #fff3cd;
+             border-color: #ffeeba;
+         }
+
+         .back-btn {
+             background-color: #6c757d;
+             color: white;
+             border: none;
+             padding: 10px 20px;
+             border-radius: 4px;
+             cursor: pointer;
+             margin-top: 20px;
+         }
+
+         .back-btn:hover {
+             background-color: #5a6268;
+         }
+
+         .action-buttons {
+             margin-top: 20px;
+             text-align: center;
+         }
+        </style>
     </head>
     <body>
         <header>
             <h1>Авторизация пользователя</h1>
         </header>
         <main>
-            <form id="loginForm" action="/login" method="post">
+            <form id="loginForm" onsubmit="submitForm(event)">
                 <div class="form-group">
                     <label for="username">Имя пользователя:</label>
                     <input type="text" id="username" name="username" required>
@@ -26,69 +58,84 @@
                         </span>
                     </div>
                 </div>
-
-                <script>
-                 document.getElementById('togglePassword').addEventListener('click', function() {
-                     const passwordInput = document.getElementById('password');
-                     const eyeIcon = document.getElementById('eyeIcon');
-                     if (passwordInput.type === 'password') {
-                         passwordInput.type = 'text';  // Показываем пароль
-                         eyeIcon.src = "/static/eye.png";  // Меняем иконку на "глаз открыт"
-                     } else {
-                         passwordInput.type = 'password';  // Скрываем пароль
-                         eyeIcon.src = "/static/eye-off.png";  // Меняем иконку на "глаз закрыт"
-                     }
-                 });
-                </script>
                 <button type="submit">Войти</button>
             </form>
-
             <!-- Кнопка восстановления пароля -->
             <p style="margin-top: 15px;">
                 <a href="/forgot_password" style="text-decoration: none; color: #007BFF;">Забыли пароль?</a>
             </p>
 
             {% if error %}
-            <p style="color:red;">{{ error }}</p>
+            <p style="color:red;" id="errorMessage">{{ error }}</p>
             {% endif %}
             {% if message %}
-            <p style="color:green;">{{ message }}</p>
+            <p style="color:green;" id="successMessage">{{ message }}</p>
             {% endif %}
         </main>
 
         <script>
-         $(document).ready(function() {
-             $('#loginForm').submit(function(e) {
-                 e.preventDefault();
-                 let formData = $(this).serialize();  // Собираем данные формы
+         // Функция для отображения ошибок
+         function showError(message) {
+             const errorElement = document.getElementById('errorMessage');
+             if (errorElement) {
+                 errorElement.textContent = message;
+             } else {
+                 const newErrorElement = document.createElement('p');
+                 newErrorElement.style.color = 'red';
+                 newErrorElement.id = 'errorMessage';
+                 newErrorElement.textContent = message;
+                 document.getElementById('loginForm').insertAdjacentElement('afterend', newErrorElement);
+             }
+         }
 
-                 $.ajax({
-                     url: this.action,  // URL для отправки формы
-                     type: 'POST',
-                     data: formData,
-                     success: function(response) {
-                         console.log('Server response:', response);  // Отладочный вывод
+         // Функция для обработки отправки формы
+         async function submitForm(event) {
+             event.preventDefault();
+             const form = document.getElementById('loginForm');
+             const formData = new FormData(form);
 
-                         // Если авторизация успешна, перенаправляем на главную страницу
-                         if (response.success) {  // Проверяем, вернулся ли флаг успешной авторизации
-                             alert('Успешная авторизация!');
-                             window.location.href = '/';  // Перенаправление на главную страницу
-                         } else {
-                             alert(response.error || 'Произошла ошибка при авторизации.');
-                         }
-                     },
-                     error: function(xhr, status, error) {
-                         console.error('Error:', error);
-                         let errorMessage;
-                         try {
-                             errorMessage = JSON.parse(xhr.responseText).detail;
-                         } catch (e) {
-                             errorMessage = 'Произошла ошибка при авторизации. Пожалуйста, попробуйте еще раз.';
-                         }
-                         alert(errorMessage);
-                     }
+             try {
+                 const response = await fetch('/login', {
+                     method: 'POST',
+                     body: formData
                  });
-             });
+
+                 const data = await response.json();
+
+                 if (response.status === 303) {
+                     if (confirm(data.message + '\nХотите перейти к управлению сессиями?')) {
+                         // Используем полный URL с временным токеном
+                         window.location.href = data.redirect_url;
+                     }
+                     return;
+                 }
+
+                 if (response.ok) {
+                     if (data.success) {
+                         window.location.href = '/';
+                     } else {
+                         showError(data.error || 'Произошла ошибка при входе');
+                     }
+                 } else {
+                     showError(data.error || data.detail || 'Произошла ошибка при входе');
+                 }
+             } catch (error) {
+                 console.error('Error:', error);
+                 showError('Произошла ошибка при отправке запроса');
+             }
+         }
+
+         // Обработчик для переключения видимости пароля
+         document.getElementById('togglePassword').addEventListener('click', function() {
+             const passwordInput = document.getElementById('password');
+             const eyeIcon = document.getElementById('eyeIcon');
+             if (passwordInput.type === 'password') {
+                 passwordInput.type = 'text';
+                 eyeIcon.src = "/static/eye.png";
+             } else {
+                 passwordInput.type = 'password';
+                 eyeIcon.src = "/static/eye-off.png";
+             }
          });
         </script>
     </body>

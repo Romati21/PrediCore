@@ -18,6 +18,7 @@ from datetime import datetime
 import pytz
 from contextlib import contextmanager
 from app.services import session_service
+from fastapi.responses import RedirectResponse
 
 @contextmanager
 def transaction(db: Session):
@@ -197,34 +198,44 @@ async def login_user(
     password: str = Form(...),
     db: Session = Depends(get_db)
 ):
-    # Проверка на количество активных сессий
     user = authenticate_user(db, username, password)
     if not user:
-        logging.warning(
-            f"Failed login attempt - Username: {username}, "
-            f"IP: {request.client.host}"
-        )
+        logging.warning(f"Failed login attempt - Username: {username}, IP: {request.client.host}")
         return JSONResponse(
             content={"error": "Неверное имя пользователя или пароль"},
             status_code=400
         )
 
-    # Проверяем количество активных сессий
-    active_sessions = db.query(UserSession).filter(
-        UserSession.user_id == user.id,
-        UserSession.is_active == True
+    # Подсчитываем количество активных сессий
+    active_sessions = db.query(models.UserSession).filter(
+        models.UserSession.user_id == user.id,
+        models.UserSession.is_active == True
     ).count()
 
     MAX_ACTIVE_SESSIONS = 5
     if active_sessions >= MAX_ACTIVE_SESSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail="Достигнуто максимальное количество активных сессий"
+        # Создаем временный токен для доступа к странице сессий
+        temp_token_data = create_access_token(
+            data={
+                "sub": user.username,
+                "temp_access": True,  # Маркер временного доступа
+                "purpose": "session_management"
+            },
+            expires_delta=timedelta(minutes=5)  # Короткое время жизни
         )
 
+        return JSONResponse(
+            content={
+                "status": "too_many_sessions",
+                "message": "Достигнуто максимальное количество активных сессий",
+                "redirect_url": f"/sessions?temp_token={temp_token_data['token']}"
+            },
+            status_code=303
+        )
 
     # Очищаем старые сессии перед созданием новой
     session_service.cleanup_old_sessions(db, user.id)
+    
     # Создаем токены с информацией об IP и User-Agent
     access_token_data = create_access_token(
         data={"sub": user.username},
@@ -252,7 +263,7 @@ async def login_user(
         )
 
     response = JSONResponse(content={"success": True, "message": "Успешный вход"})
-
+    
     cookie_settings = {
         "httponly": True,
         "samesite": 'lax',
@@ -366,3 +377,171 @@ async def cleanup_expired_tokens(db: Session):
     except Exception as e:
         logging.error(f"Error during token cleanup: {str(e)}")
         db.rollback()
+
+@router.get("/sessions", response_class=HTMLResponse)
+async def sessions_page(
+    request: Request,
+    temp_token: str = None,
+    db: Session = Depends(get_db)
+):
+    try:
+        # Проверяем временный токен или обычную аутентификацию
+        if temp_token:
+            try:
+                payload = jwt.decode(temp_token, SECRET_KEY, algorithms=[ALGORITHM])
+                if not payload.get("temp_access"):
+                    raise HTTPException(status_code=401, detail="Недействительный токен")
+                username = payload.get("sub")
+            except JWTError:
+                raise HTTPException(status_code=401, detail="Недействительный токен")
+        else:
+            # Используем стандартную аутентификацию
+            current_user = await get_current_user(request, db)
+            username = current_user.username
+
+        # Получаем пользователя
+        user = db.query(models.User).filter(models.User.username == username).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+        # Получаем все активные сессии пользователя
+        active_sessions = db.query(models.UserSession).filter(
+            models.UserSession.user_id == user.id,
+            models.UserSession.is_active == True
+        ).order_by(models.UserSession.last_activity.desc()).all()
+
+        # Определяем текущую сессию
+        current_session_id = None
+        access_token = request.cookies.get('access_token')
+        if access_token:
+            try:
+                token = access_token.replace('"', '').replace('Bearer ', '')
+                payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+                jti = payload.get('jti')
+                if jti:
+                    current_session = db.query(models.UserSession).filter(
+                        models.UserSession.access_token_jti == jti
+                    ).first()
+                    if current_session:
+                        current_session_id = current_session.id
+            except JWTError:
+                pass
+
+        return templates.TemplateResponse(
+            "sessions.html",
+            {
+                "request": request,
+                "sessions": active_sessions,
+                "current_session_id": current_session_id,
+                "is_temp_access": bool(temp_token)  # Флаг временного доступа
+            }
+        )
+    except HTTPException as e:
+        # В случае ошибки перенаправляем на страницу входа
+        return RedirectResponse(url="/login", status_code=302)
+
+@router.post("/sessions/{session_id}/terminate")
+async def terminate_session(
+    session_id: int,
+    request: Request,
+    temp_token: str = None,
+    db: Session = Depends(get_db)
+):
+    logging.info(f"Attempting to terminate session {session_id}")
+
+    try:
+        # Проверяем временный токен или обычную аутентификацию
+        if temp_token:
+            try:
+                logging.info("Using temp token authentication")
+                payload = jwt.decode(temp_token, SECRET_KEY, algorithms=[ALGORITHM])
+                if not payload.get("temp_access"):
+                    raise HTTPException(status_code=401, detail="Недействительный токен")
+                username = payload.get("sub")
+                user = db.query(models.User).filter(models.User.username == username).first()
+                logging.info(f"Found user {username} using temp token")
+            except JWTError as e:
+                logging.error(f"JWT Error: {str(e)}")
+                raise HTTPException(status_code=401, detail="Недействительный токен")
+        else:
+            logging.info("Using standard authentication")
+            user = await get_current_user(request, db)
+
+        if not user:
+            logging.error("User not found")
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+        # Находим сессию
+        session = db.query(models.UserSession).filter(
+            models.UserSession.id == session_id,
+            models.UserSession.user_id == user.id
+        ).first()
+
+        if not session:
+            logging.error(f"Session {session_id} not found for user {user.id}")
+            raise HTTPException(status_code=404, detail="Сессия не найдена")
+
+        logging.info(f"Found session {session_id} for user {user.id}")
+
+        try:
+            # Отзываем токены сессии
+            await session.revoke_tokens(db, user, "User terminated session via session management")
+            logging.info(f"Successfully terminated session {session_id}")
+
+            return {"message": "Сессия успешно завершена"}
+
+        except Exception as e:
+            logging.error(f"Error during session termination: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Ошибка при завершении сессии: {str(e)}"
+            )
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logging.error(f"Unexpected error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Внутренняя ошибка сервера: " + str(e)
+        )
+
+@router.post("/sessions/terminate-all")
+async def terminate_all_sessions(
+    request: Request,
+    temp_token: str = None,
+    db: Session = Depends(get_db)
+):
+    try:
+        if temp_token:
+            try:
+                payload = jwt.decode(temp_token, SECRET_KEY, algorithms=[ALGORITHM])
+                if not payload.get("temp_access"):
+                    raise HTTPException(status_code=401, detail="Недействительный токен")
+                username = payload.get("sub")
+                user = db.query(models.User).filter(models.User.username == username).first()
+            except JWTError:
+                raise HTTPException(status_code=401, detail="Недействительный токен")
+        else:
+            user = await get_current_user(request, db)
+
+        if not user:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+        # Получаем все активные сессии
+        active_sessions = db.query(models.UserSession).filter(
+            models.UserSession.user_id == user.id,
+            models.UserSession.is_active == True
+        ).all()
+
+        # Отзываем все сессии
+        for session in active_sessions:
+            await session.revoke_tokens(db, user, "User terminated all sessions")
+
+        return {"message": "Все сессии успешно завершены"}
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logging.error(f"Error terminating all sessions: {str(e)}")
+        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
