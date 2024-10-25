@@ -108,7 +108,6 @@ cleanup_task = None
 async def start_cleanup_task():
     """Запуск задачи очистки при старте приложения"""
     global cleanup_task
-    # Создаем задачу, но не ждем её завершения
     cleanup_task = asyncio.create_task(cleanup_service.run_cleanup_task())
     logging.info("Cleanup task started")
 
@@ -117,8 +116,15 @@ async def stop_cleanup_task():
     """Остановка задачи очистки при остановке приложения"""
     global cleanup_task
     if cleanup_task:
-        cleanup_service.is_running = False
-        await cleanup_task
+        logging.info("Stopping cleanup task...")
+        await cleanup_service.stop()  # Используем новый метод остановки
+        try:
+            await asyncio.wait_for(cleanup_task, timeout=5.0)  # Ждем не более 5 секунд
+        except asyncio.TimeoutError:
+            logging.warning("Cleanup task shutdown timed out")
+        except Exception as e:
+            logging.error(f"Error during cleanup task shutdown: {e}")
+        cleanup_task = None
         logging.info("Cleanup task stopped")
 
 # Регистрируем роутеры
