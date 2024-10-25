@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ru">
+    <head>
+        <meta charset="UTF-8">
+        <title>Управление сессиями</title>
+        <link rel="stylesheet" href="/static/styles.css">
+        <style>
+         .stats-container {
+             margin: 20px 0;
+             padding: 20px;
+             background-color: #f5f5f5;
+             border-radius: 5px;
+         }
+         .stat-item {
+             margin: 10px 0;
+         }
+         .cleanup-button {
+             background-color: #dc3545;
+             color: white;
+             padding: 10px 20px;
+             border: none;
+             border-radius: 5px;
+             cursor: pointer;
+         }
+         .cleanup-button:hover {
+             background-color: #c82333;
+         }
+         .status-message {
+             margin-top: 20px;
+             padding: 10px;
+             border-radius: 5px;
+         }
+         .success {
+             background-color: #d4edda;
+             color: #155724;
+         }
+         .error {
+             background-color: #f8d7da;
+             color: #721c24;
+         }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Управление сессиями</h1>
+
+            <div class="stats-container">
+                <h2>Статистика сессий</h2>
+                <div class="stat-item">Всего сессий: {{ total_sessions }}</div>
+                <div class="stat-item">Активных сессий: {{ active_sessions }}</div>
+                <div class="stat-item">Истекших сессий: {{ expired_sessions }}</div>
+            </div>
+
+            <div class="actions-container">
+                <button onclick="cleanupSessions()" class="cleanup-button">
+                    Запустить очистку сессий
+                </button>
+            </div>
+
+            <div id="statusMessage" class="status-message" style="display: none;"></div>
+        </div>
+
+        <script>
+         async function cleanupSessions() {
+             if (!confirm('Вы уверены, что хотите запустить очистку сессий?')) {
+                 return;
+             }
+
+             const statusMessage = document.getElementById('statusMessage');
+             const button = document.querySelector('.cleanup-button');
+             button.disabled = true;
+
+             try {
+                 const response = await fetch('/admin/cleanup-sessions', {
+                     method: 'POST',
+                     credentials: 'include'
+                 });
+
+                 const data = await response.json();
+
+                 statusMessage.textContent = data.message;
+                 statusMessage.className = 'status-message ' + (data.success ? 'success' : 'error');
+                 statusMessage.style.display = 'block';
+
+                 if (data.success) {
+                     // Обновляем страницу через 2 секунды после успешной очистки
+                     setTimeout(() => {
+                         window.location.reload();
+                     }, 2000);
+                 }
+             } catch (error) {
+                 statusMessage.textContent = 'Произошла ошибка при выполнении запроса';
+                 statusMessage.className = 'status-message error';
+                 statusMessage.style.display = 'block';
+                 console.error('Error:', error);
+             } finally {
+                 button.disabled = false;
+             }
+         }
+        </script>
+    </body>
+</html>

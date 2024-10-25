@@ -39,7 +39,7 @@ from app.tasks import cleanup_unused_drawings, clean_temp_folder
 from apscheduler.triggers.cron import CronTrigger
 from fastapi.middleware.cors import CORSMiddleware
 from app.middleware.token_refresh import TokenRefreshMiddleware, TokenUpdateMiddleware
-
+from app.services import cleanup_service
 
 # Настройка логгирования
 logging.basicConfig(level=logging.INFO)
@@ -101,12 +101,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# def get_db():
-#     db = SessionLocal()
-#     try:
-#         yield db
-#     finally:
-#         db.close()
+# Добавляем глобальную переменную для хранения задачи
+cleanup_task = None
+
+@app.on_event("startup")
+async def start_cleanup_task():
+    """Запуск задачи очистки при старте приложения"""
+    global cleanup_task
+    # Создаем задачу, но не ждем её завершения
+    cleanup_task = asyncio.create_task(cleanup_service.run_cleanup_task())
+    logging.info("Cleanup task started")
+
+@app.on_event("shutdown")
+async def stop_cleanup_task():
+    """Остановка задачи очистки при остановке приложения"""
+    global cleanup_task
+    if cleanup_task:
+        cleanup_service.is_running = False
+        await cleanup_task
+        logging.info("Cleanup task stopped")
+
+# Регистрируем роутеры
+app.include_router(auth.router)
+app.include_router(recovery.router)
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):

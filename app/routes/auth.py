@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Form
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, BackgroundTasks
 from jose import JWTError, jwt
 from app.models import User, UserSession, RevokedToken
 from fastapi.responses import JSONResponse
@@ -9,7 +9,7 @@ from app import models, schemas
 from app.database import get_db
 # from app.routes.auth import access_token_data
 from app.auth.auth import authenticate_user, create_access_token, get_password_hash, get_current_active_user, is_admin, create_refresh_token, refresh_access_token, get_current_user, SECRET_KEY, ALGORITHM
-from datetime import timedelta, date
+from datetime import timedelta, date, timezone
 from fastapi.templating import Jinja2Templates
 from typing import Dict, Any
 from app.auth.auth import authenticate_user, revoke_token
@@ -19,6 +19,7 @@ import pytz
 from contextlib import contextmanager
 from app.services import session_service
 from fastapi.responses import RedirectResponse
+from app.services import cleanup_service
 
 @contextmanager
 def transaction(db: Session):
@@ -548,3 +549,50 @@ async def terminate_all_sessions(
     except Exception as e:
         logging.error(f"Error terminating all sessions: {str(e)}")
         raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+
+# Добавляем маршруты для очистки сессий
+@router.get("/admin/cleanup-sessions", response_class=HTMLResponse)
+async def cleanup_sessions_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(is_admin)
+):
+    """Страница управления очисткой сессий"""
+    # Получаем статистику по сессиям
+    total_sessions = db.query(models.UserSession).count()
+    active_sessions = db.query(models.UserSession).filter(
+        models.UserSession.is_active == True
+    ).count()
+    expired_sessions = db.query(models.UserSession).filter(
+        models.UserSession.is_active == True,
+        models.UserSession.last_activity < datetime.now(timezone.utc) - timedelta(days=7)
+    ).count()
+
+    return templates.TemplateResponse(
+        "cleanup_sessions.html",
+        {
+            "request": request,
+            "total_sessions": total_sessions,
+            "active_sessions": active_sessions,
+            "expired_sessions": expired_sessions,
+            "current_user": current_user
+        }
+    )
+
+@router.post("/admin/cleanup-sessions")
+async def manual_cleanup_sessions(
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(is_admin)
+):
+    """Ручной запуск очистки сессий"""
+    try:
+        await cleanup_service.cleanup_expired_sessions(db)
+        return {"success": True, "message": "Очистка сессий успешно выполнена"}
+    except Exception as e:
+        logging.error(f"Error during manual cleanup: {str(e)}")
+        return {
+            "success": False,
+            "message": "Произошла ошибка при очистке сессий",
+            "error": str(e)
+        }
