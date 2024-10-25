@@ -60,6 +60,7 @@
                 </div>
                 <button type="submit">Войти</button>
             </form>
+            <div id="errorMessage" style="color: red; display: none;"></div>
             <!-- Кнопка восстановления пароля -->
             <p style="margin-top: 15px;">
                 <a href="/forgot_password" style="text-decoration: none; color: #007BFF;">Забыли пароль?</a>
@@ -97,31 +98,43 @@
              try {
                  const response = await fetch('/login', {
                      method: 'POST',
-                     body: formData
+                     body: formData,
+                     credentials: 'include'
                  });
 
                  const data = await response.json();
+                 console.log('Response data:', data); // Для отладки
 
-                 if (response.status === 303) {
+                 if (data.status === "too_many_sessions") {
                      if (confirm(data.message + '\nХотите перейти к управлению сессиями?')) {
-                         // Используем полный URL с временным токеном
                          window.location.href = data.redirect_url;
+                         return;
                      }
                      return;
                  }
 
-                 if (response.ok) {
-                     if (data.success) {
-                         window.location.href = '/';
-                     } else {
-                         showError(data.error || 'Произошла ошибка при входе');
-                     }
+                 if (data.success) {
+                     window.location.href = '/';
                  } else {
-                     showError(data.error || data.detail || 'Произошла ошибка при входе');
+                     showError(data.error || 'Произошла ошибка при входе');
                  }
              } catch (error) {
                  console.error('Error:', error);
                  showError('Произошла ошибка при отправке запроса');
+             }
+         }
+
+         // Функция для отображения ошибок
+         function showError(message) {
+             const errorElement = document.getElementById('errorMessage');
+             if (errorElement) {
+                 errorElement.textContent = message;
+             } else {
+                 const newErrorElement = document.createElement('p');
+                 newErrorElement.id = 'errorMessage';
+                 newErrorElement.style.color = 'red';
+                 newErrorElement.textContent = message;
+                 document.getElementById('loginForm').insertAdjacentElement('afterend', newErrorElement);
              }
          }
 

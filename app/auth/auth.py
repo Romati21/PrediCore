@@ -106,15 +106,14 @@ def create_access_token(
     data: dict,
     request: Request = None,
     expires_delta: timedelta = None
-) -> Dict[str, str]:
+) -> tuple[str, str]:  # Возвращаем (token, jti)
     to_encode = data.copy()
-    jti = str(uuid.uuid4())
-
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
         expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 
+    jti = str(uuid.uuid4())
     to_encode.update({
         "exp": expire,
         "jti": jti,
@@ -125,8 +124,8 @@ def create_access_token(
         to_encode["ip"] = request.client.host
         to_encode["user_agent"] = request.headers.get("user-agent")
 
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return {"token": encoded_jwt, "jti": jti}
+    token = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return token, jti
 
 async def validate_token(token: str, db: Session, request: Request = None) -> dict:
     try:
@@ -202,7 +201,7 @@ def create_refresh_token(
     data: dict,
     request: Request = None,
     expires_delta: timedelta = None
-) -> Dict[str, str]:
+) -> tuple[str, str]:  # Возвращаем (token, jti)
     to_encode = data.copy()
     jti = str(uuid.uuid4())
 
@@ -221,8 +220,8 @@ def create_refresh_token(
         to_encode["ip"] = request.client.host
         to_encode["user_agent"] = request.headers.get("user-agent")
 
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return {"token": encoded_jwt, "jti": jti}
+    token = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return token, jti
 
 async def get_current_user(
     request: Request,

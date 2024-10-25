@@ -215,35 +215,42 @@ async def login_user(
     MAX_ACTIVE_SESSIONS = 5
     if active_sessions >= MAX_ACTIVE_SESSIONS:
         # Создаем временный токен для доступа к странице сессий
-        temp_token_data = create_access_token(
+        temp_token, _ = create_access_token(
             data={
                 "sub": user.username,
-                "temp_access": True,  # Маркер временного доступа
+                "temp_access": True,
                 "purpose": "session_management"
             },
-            expires_delta=timedelta(minutes=5)  # Короткое время жизни
+            expires_delta=timedelta(minutes=5)
         )
 
-        return JSONResponse(
+        response = JSONResponse(
             content={
                 "status": "too_many_sessions",
                 "message": "Достигнуто максимальное количество активных сессий",
-                "redirect_url": f"/sessions?temp_token={temp_token_data['token']}"
+                "redirect_url": f"/sessions?temp_token={temp_token}"
             },
-            status_code=303
+            status_code=200
         )
 
-    # Очищаем старые сессии перед созданием новой
-    session_service.cleanup_old_sessions(db, user.id)
-    
-    # Создаем токены с информацией об IP и User-Agent
-    access_token_data = create_access_token(
+        response.set_cookie(
+            key="temp_token",
+            value=temp_token,
+            max_age=300,
+            httponly=True,
+            samesite='lax',
+            secure=request.url.scheme == "https"
+        )
+
+        return response
+
+    # Для обычного входа
+    access_token, access_jti = create_access_token(
         data={"sub": user.username},
         request=request
     )
-    refresh_token_data = create_refresh_token(
-        data={"sub": user.username},
-        request=request
+    refresh_token, refresh_jti = create_refresh_token(
+        data={"sub": user.username}
     )
 
     # Создаем сессию
@@ -252,8 +259,8 @@ async def login_user(
         user=user,
         ip_address=request.client.host,
         user_agent=request.headers.get("user-agent", ""),
-        access_token_jti=access_token_data["jti"],
-        refresh_token_jti=refresh_token_data["jti"]
+        access_token_jti=access_jti,
+        refresh_token_jti=refresh_jti
     )
 
     if not session:
@@ -263,7 +270,7 @@ async def login_user(
         )
 
     response = JSONResponse(content={"success": True, "message": "Успешный вход"})
-    
+
     cookie_settings = {
         "httponly": True,
         "samesite": 'lax',
@@ -272,14 +279,14 @@ async def login_user(
 
     response.set_cookie(
         key="access_token",
-        value=access_token_data["token"],
+        value=access_token,
         max_age=1800,
         **cookie_settings
     )
 
     response.set_cookie(
         key="refresh_token",
-        value=refresh_token_data["token"],
+        value=refresh_token,
         max_age=604800,
         **cookie_settings
     )
@@ -385,59 +392,55 @@ async def sessions_page(
     db: Session = Depends(get_db)
 ):
     try:
-        # Проверяем временный токен или обычную аутентификацию
+        # Пытаемся получить токен из параметра URL или из куки
+        temp_token = temp_token or request.cookies.get('temp_token')
+
         if temp_token:
             try:
                 payload = jwt.decode(temp_token, SECRET_KEY, algorithms=[ALGORITHM])
                 if not payload.get("temp_access"):
                     raise HTTPException(status_code=401, detail="Недействительный токен")
                 username = payload.get("sub")
-            except JWTError:
-                raise HTTPException(status_code=401, detail="Недействительный токен")
-        else:
-            # Используем стандартную аутентификацию
-            current_user = await get_current_user(request, db)
-            username = current_user.username
+                user = db.query(models.User).filter(models.User.username == username).first()
+                if not user:
+                    raise HTTPException(status_code=404, detail="Пользователь не найден")
 
-        # Получаем пользователя
-        user = db.query(models.User).filter(models.User.username == username).first()
-        if not user:
-            raise HTTPException(status_code=404, detail="Пользователь не найден")
+                # Получаем активные сессии и их количество
+                active_sessions = models.UserSession.get_active_sessions(db, user.id)
+                active_sessions_count = models.UserSession.get_active_sessions_count(db, user.id)
 
-        # Получаем все активные сессии пользователя
-        active_sessions = db.query(models.UserSession).filter(
-            models.UserSession.user_id == user.id,
-            models.UserSession.is_active == True
-        ).order_by(models.UserSession.last_activity.desc()).all()
+                return templates.TemplateResponse(
+                    "sessions.html",
+                    {
+                        "request": request,
+                        "sessions": active_sessions,
+                        "active_sessions_count": active_sessions_count,
+                        "is_temp_access": True,
+                        "user": user
+                    }
+                )
+            except JWTError as e:
+                logging.error(f"JWT Error: {str(e)}")
+                return RedirectResponse(url="/login", status_code=302)
 
-        # Определяем текущую сессию
-        current_session_id = None
-        access_token = request.cookies.get('access_token')
-        if access_token:
-            try:
-                token = access_token.replace('"', '').replace('Bearer ', '')
-                payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-                jti = payload.get('jti')
-                if jti:
-                    current_session = db.query(models.UserSession).filter(
-                        models.UserSession.access_token_jti == jti
-                    ).first()
-                    if current_session:
-                        current_session_id = current_session.id
-            except JWTError:
-                pass
+        # Если нет временного токена, пробуем обычную аутентификацию
+        user = await get_current_user(request, db)
+        active_sessions = models.UserSession.get_active_sessions(db, user.id)
+        active_sessions_count = models.UserSession.get_active_sessions_count(db, user.id)
 
         return templates.TemplateResponse(
             "sessions.html",
             {
                 "request": request,
                 "sessions": active_sessions,
-                "current_session_id": current_session_id,
-                "is_temp_access": bool(temp_token)  # Флаг временного доступа
+                "active_sessions_count": active_sessions_count,
+                "is_temp_access": False,
+                "user": user
             }
         )
+
     except HTTPException as e:
-        # В случае ошибки перенаправляем на страницу входа
+        logging.error(f"Session page error: {str(e)}")
         return RedirectResponse(url="/login", status_code=302)
 
 @router.post("/sessions/{session_id}/terminate")

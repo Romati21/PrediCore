@@ -5,8 +5,10 @@ from sqlalchemy.sql import func
 from sqlalchemy.ext.declarative import declarative_base
 from passlib.hash import bcrypt  # Для хэширования паролей
 import enum
-from datetime import date, datetime, timedelta
+from datetime import datetime, timezone, timedelta
 import logging
+from typing import List, Optional
+from sqlalchemy import or_
 
 Base = declarative_base()
 
@@ -83,14 +85,80 @@ class UserSession(Base):
     is_active = Column(Boolean, default=True)
     access_token_jti = Column(String(36), unique=True)
     refresh_token_jti = Column(String(36), unique=True)
+    expired_at = Column(DateTime(timezone=True), nullable=True)
+    cleanup_reason = Column(String(255), nullable=True)
 
     user = relationship("User", back_populates="sessions")
     revoked_tokens = relationship("RevokedToken", back_populates="session", cascade="all, delete-orphan")
 
+    @property
+    def is_expired(self) -> bool:
+        """Проверка, истекла ли сессия"""
+        if not self.is_active:
+            return True
+
+        # Используем timezone-aware datetime
+        current_time = datetime.now(timezone.utc)
+
+        # Проверка установленного времени истечения
+        if self.expired_at and self.expired_at < current_time:
+            return True
+
+        # Убедимся, что last_activity имеет timezone информацию
+        last_activity = self.last_activity
+        if last_activity.tzinfo is None:
+            last_activity = last_activity.replace(tzinfo=timezone.utc)
+
+        # Проверка последней активности (7 дней)
+        if last_activity < current_time - timedelta(days=7):
+            return True
+
+        return False
+
+    def update_activity(self, db: Session) -> None:
+        """Обновление времени последней активности"""
+        self.last_activity = datetime.now(timezone.utc)
+        db.commit()
+
+    async def expire_session(self, db: Session, reason: str) -> None:
+        """Принудительное истечение сессии"""
+        self.is_active = False
+        self.expired_at = datetime.now(timezone.utc)
+        self.cleanup_reason = reason
+        db.commit()
+        
+        await self.revoke_tokens(db, self.user, reason)
+
+    @classmethod
+    def get_active_sessions_count(cls, db: Session, user_id: int) -> int:
+        """Получение количества активных сессий пользователя"""
+        current_time = datetime.now(timezone.utc)
+        return db.query(cls).filter(
+            cls.user_id == user_id,
+            cls.is_active == True,
+            or_(
+                cls.expired_at.is_(None),
+                cls.expired_at > current_time
+            )
+        ).count()
+
+    @classmethod
+    def get_active_sessions(cls, db: Session, user_id: int) -> List["UserSession"]:
+        """Получение активных сессий пользователя"""
+        current_time = datetime.now(timezone.utc)
+        return db.query(cls).filter(
+            cls.user_id == user_id,
+            cls.is_active == True,
+            or_(
+                cls.expired_at.is_(None),
+                cls.expired_at > current_time
+            )
+        ).order_by(cls.last_activity.desc()).all()
+
     async def revoke_tokens(self, db: Session, revoked_by_user: User, reason: str):
-    # """Отзыв всех токенов сессии"""
+        """Отзыв всех токенов сессии"""
         try:
-            current_time = datetime.utcnow()
+            current_time = datetime.now(timezone.utc)
 
             logging.info(f"Attempting to revoke tokens for session {self.id}")
 
@@ -121,6 +189,8 @@ class UserSession(Base):
                 db.add(revoked_refresh)
 
             self.is_active = False
+            self.expired_at = current_time
+            self.cleanup_reason = reason
             logging.info(f"Setting session {self.id} as inactive")
 
             try:
@@ -135,6 +205,8 @@ class UserSession(Base):
             logging.error(f"Error in revoke_tokens: {str(e)}")
             db.rollback()
             raise
+
+
 User.sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
 
 class Machine(Base):
