@@ -661,7 +661,7 @@ async def combine_drawing_with_qr(order_id: int, drawing_id: int, db: Session = 
             # Открываем QR-код
             with Image.open(qr_code_path).convert('RGBA') as qr_code:
                 # Определяем размеры и позицию для QR-кода
-                qr_size_ratio = 0.25 if img.width > img.height else 0.2
+                qr_size_ratio = 0.15 if img.width > img.height else 0.2
                 qr_size = int(min(img.width, img.height) * qr_size_ratio)
                 qr_code = qr_code.resize((qr_size, qr_size), Image.LANCZOS)
 
