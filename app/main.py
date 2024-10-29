@@ -2,6 +2,7 @@ from fastapi import FastAPI, WebSocket, Depends, HTTPException, Request, Form, U
 from app.utils import file_utils
 import asyncio
 import io
+import tempfile
 from werkzeug.utils import secure_filename
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -183,8 +184,21 @@ def setup_scheduler():
 setup_scheduler()
 
 
+def ensure_default_drawing_exists():
+    default_drawing_path = "static/drawings/default_drawing.png"
+    if not os.path.exists(default_drawing_path):
+        os.makedirs(os.path.dirname(default_drawing_path), exist_ok=True)
+        # Создаем простое изображение-заглушку
+        from PIL import Image, ImageDraw
+
+        img = Image.new('RGB', (800, 600), color='white')
+        d = ImageDraw.Draw(img)
+        d.text((400, 300), "Чертёж отсутствует", fill='black', anchor="mm")
+        img.save(default_drawing_path)
+
 @app.on_event("startup")
 async def startup_event():
+    ensure_default_drawing_exists()
     try:
         scheduler.start()
         logger.info("Планировщик успешно запущен")
@@ -391,6 +405,8 @@ async def check_part(number: str, db: Session = Depends(get_db)):
         return {"exists": True, "part": {"id": part.id, "number": part.number, "name": part.name}}
     return {"exists": False}
 
+
+
 @app.post("/create_order")
 async def create_order(
     part_id: str = Form(...),
@@ -400,27 +416,50 @@ async def create_order(
     required_material: str = Form(...),
     metal_delivery_date: Optional[str] = Form(None),
     notes: Optional[str] = Form(None),
-    drawing_files: List[UploadFile] = File(...),
+    drawing_files: List[UploadFile] = File(None),
     db: Session = Depends(get_db)
 ):
     try:
-        logger.info(f"Received order data: part_id={part_id}, "
-                    f"quantity={quantity}, desired_production_date_start={desired_production_date_start}, "
-                    f"desired_production_date_end={desired_production_date_end}, "
-                    f"required_material={required_material}, metal_delivery_date={metal_delivery_date}, "
-                    f"notes={notes}, number of files: {len(drawing_files)}")
+        logger.info("Starting order creation process")
+        
+        # Проверяем наличие загруженных файлов
+        if not drawing_files or (len(drawing_files) == 1 and not drawing_files[0].filename):
+            logger.info("No drawing files uploaded, using default template")
+            
+            # Путь к файлу-заглушке
+            default_drawing_path = "static/drawings/default_drawing.png"
+            
+            # Создаем SpooledTemporaryFile для хранения содержимого
+            temp_file = tempfile.SpooledTemporaryFile()
+            
+            # Копируем содержимое файла-заглушки во временный файл
+            with open(default_drawing_path, 'rb') as f:
+                shutil.copyfileobj(f, temp_file)
+                temp_file.seek(0)  # Возвращаем указатель в начало файла
+            
+            # Создаем объект UploadFile с использованием стандартного конструктора
+            default_file = UploadFile(
+                file=temp_file,
+                filename="default_drawing.png",
+                headers={
+                    "content-type": "image/png",
+                    "content-disposition": f'attachment; filename="default_drawing.png"'
+                }
+            )
+            
+            drawing_files = [default_file]
+            logger.info("Default drawing template prepared")
 
+        # Остальной код остается без изменений
         start_date = datetime.strptime(desired_production_date_start, "%d.%m.%Y").date()
         end_date = datetime.strptime(desired_production_date_end, "%d.%m.%Y").date()
 
-        # Генерируем уникальный номер заказа
         part = db.query(models.Part).filter_by(id=part_id).first()
         if not part:
             raise HTTPException(status_code=400, detail=f"Invalid part_id: {part_id}")
 
         order_number = generate_order_number(part.number, db)
 
-        # Создаем данные для заказа
         order_data = schemas.ProductionOrderCreate(
             order_number=order_number,
             part_id=part_id,
@@ -431,22 +470,20 @@ async def create_order(
             metal_delivery_date=metal_delivery_date,
             notes=notes,
             publication_date=datetime.now().date(),
-            drawing_files=[]  # Пустой список, который мы заполним позже
+            drawing_files=[]
         )
 
         new_order = repository.create_production_order(db, order_data)
         logger.info(f"Order created with ID: {new_order.id} and number: {new_order.order_number}")
 
-        # Генерируем один QR-код для всего заказа
+        # Генерация QR-кода
         qr_data = f"https://192.168.0.96:8343/view_drawing/{new_order.id}"
         qr_image = generate_qr_code_with_text(qr_data, new_order.order_number)
 
-        # Сохраняем QR-код
         qr_filename = f"qr_code_order_{new_order.id}.png"
         qr_path = get_file_path(hashlib.sha256(qr_filename.encode()).hexdigest(), ".png")
         qr_image.save(qr_path, format="PNG")
 
-        # Сохраняем путь к QR-коду в заказе
         new_order.qr_code_path = os.path.relpath(qr_path, 'static')
 
         processed_files = []
@@ -463,14 +500,14 @@ async def create_order(
                 processed_file['file_path'],
                 processed_file['file_name'],
                 processed_file['file_size'],
-                processed_file['mime_type']
+                processed_file['mime_type'],
+                is_default=True  # Добавляем новый параметр
             )
             repository.create_order_drawing(db, new_order.id, drawing.id)
 
         new_order.drawing_link = ','.join([file['file_path'] for file in processed_files])
         db.commit()
 
-        # Отправляем уведомление о новом заказе
         await manager.broadcast(json.dumps({"action": "new_order", "order": new_order.to_dict()}))
 
         return JSONResponse(content={
@@ -480,15 +517,14 @@ async def create_order(
             "processed_files": processed_files
         }, status_code=201)
 
-    except ValidationError as e:
-        logger.error(f"Validation error: {e.json()}")
-        raise HTTPException(status_code=422, detail=f"Validation error: {e.errors()}")
-    except HTTPException as e:
-        raise e
     except Exception as e:
         logger.error(f"Error creating order: {str(e)}", exc_info=True)
         db.rollback()
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+    finally:
+        # Закрываем временный файл, если он был создан
+        if 'temp_file' in locals():
+            temp_file.close()
 
 @app.post("/edit_production_order/{order_id}")
 async def update_production_order(

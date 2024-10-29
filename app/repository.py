@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import func
 from app import models, schemas
 import random
 import string
@@ -84,19 +85,37 @@ def create_order_drawing(db: Session, order_id: int, drawing_id: int):
 def get_order_drawings(db: Session, order_id: int):
     return db.query(models.OrderDrawing).filter(models.OrderDrawing.order_id == order_id).all()
 
-def get_or_create_drawing(db: Session, file_hash: str, file_path: str, file_name: str, file_size: int, mime_type: str):
+def get_or_create_drawing(
+    db: Session, 
+    file_hash: str, 
+    file_path: str, 
+    file_name: str, 
+    file_size: int, 
+    mime_type: str,
+    is_default: bool = False
+) -> models.Drawing:
     drawing = db.query(models.Drawing).filter(models.Drawing.hash == file_hash).first()
-    if not drawing:
+
+    if drawing:
+        # Если это существующий чертеж, обновляем last_used_at
+        drawing.last_used_at = func.now()
+        # Если это файл-заглушка, убираем archived_at если он был установлен
+        if is_default:
+            drawing.archived_at = None
+    else:
+        # Создаем новый чертеж
         drawing = models.Drawing(
             hash=file_hash,
             file_path=file_path,
             file_name=file_name,
             file_size=file_size,
-            mime_type=mime_type
+            mime_type=mime_type,
+            archived_at=None  # Явно указываем что чертеж не в архиве
         )
         db.add(drawing)
-        db.commit()
-        db.refresh(drawing)
+
+    db.commit()
+    db.refresh(drawing)
     return drawing
 
 def get_drawings_by_order(db: Session, order_id: int) -> List[models.Drawing]:
