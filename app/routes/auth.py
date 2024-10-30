@@ -216,14 +216,15 @@ async def login_user(
     MAX_ACTIVE_SESSIONS = 5
     if active_sessions >= MAX_ACTIVE_SESSIONS:
         # Создаем временный токен для доступа к странице сессий
-        temp_token, _ = create_access_token(
+        temp_token, temp_jti = create_access_token(
             data={
                 "sub": user.username,
                 "temp_access": True,
                 "purpose": "session_management"
             },
-            expires_delta=timedelta(minutes=5)
-        )
+        expires_delta=timedelta(minutes=5)
+    )
+
 
         response = JSONResponse(
             content={

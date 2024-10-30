@@ -37,6 +37,18 @@
              margin-top: 20px;
              text-align: center;
          }
+
+         #errorMessage {
+             color: red;
+             margin-top: 15px;
+             display: none;
+         }
+
+         #successMessage {
+             color: green;
+             margin-top: 15px;
+             display: none;
+         }
         </style>
     </head>
     <body>
@@ -60,17 +72,21 @@
                 </div>
                 <button type="submit">Войти</button>
             </form>
-            <div id="errorMessage" style="color: red; display: none;"></div>
+
+            <div id="errorMessage"></div>
+            <div id="successMessage"></div>
+
             <!-- Кнопка восстановления пароля -->
             <p style="margin-top: 15px;">
                 <a href="/forgot_password" style="text-decoration: none; color: #007BFF;">Забыли пароль?</a>
             </p>
 
+            <!-- Если есть сообщения от сервера, отображаем их -->
             {% if error %}
-            <p style="color:red;" id="errorMessage">{{ error }}</p>
+            <p id="errorMessage" style="display: block;">{{ error }}</p>
             {% endif %}
             {% if message %}
-            <p style="color:green;" id="successMessage">{{ message }}</p>
+            <p id="successMessage" style="display: block;">{{ message }}</p>
             {% endif %}
         </main>
 
@@ -78,14 +94,24 @@
          // Функция для отображения ошибок
          function showError(message) {
              const errorElement = document.getElementById('errorMessage');
+             errorElement.textContent = message;
+             errorElement.style.display = 'block';
+             // Скрываем сообщение об успехе, если оно отображается
+             const successElement = document.getElementById('successMessage');
+             if (successElement) {
+                 successElement.style.display = 'none';
+             }
+         }
+
+         // Функция для отображения успешных сообщений
+         function showSuccess(message) {
+             const successElement = document.getElementById('successMessage');
+             successElement.textContent = message;
+             successElement.style.display = 'block';
+             // Скрываем сообщение об ошибке, если оно отображается
+             const errorElement = document.getElementById('errorMessage');
              if (errorElement) {
-                 errorElement.textContent = message;
-             } else {
-                 const newErrorElement = document.createElement('p');
-                 newErrorElement.style.color = 'red';
-                 newErrorElement.id = 'errorMessage';
-                 newErrorElement.textContent = message;
-                 document.getElementById('loginForm').insertAdjacentElement('afterend', newErrorElement);
+                 errorElement.style.display = 'none';
              }
          }
 
@@ -105,36 +131,26 @@
                  const data = await response.json();
                  console.log('Response data:', data); // Для отладки
 
-                 if (data.status === "too_many_sessions") {
-                     if (confirm(data.message + '\nХотите перейти к управлению сессиями?')) {
-                         window.location.href = data.redirect_url;
+                 if (response.status === 200) {
+                     if (data.status === "too_many_sessions") {
+                         if (confirm(data.message + '\nХотите перейти к управлению сессиями?')) {
+                             window.location.href = data.redirect_url;
+                         }
                          return;
                      }
-                     return;
-                 }
 
-                 if (data.success) {
-                     window.location.href = '/';
+                     if (data.success) {
+                         window.location.href = '/';
+                     } else {
+                         showError(data.error || 'Произошла ошибка при входе');
+                     }
                  } else {
+                     // Обработка ошибок, возвращенных с сервера
                      showError(data.error || 'Произошла ошибка при входе');
                  }
              } catch (error) {
                  console.error('Error:', error);
                  showError('Произошла ошибка при отправке запроса');
-             }
-         }
-
-         // Функция для отображения ошибок
-         function showError(message) {
-             const errorElement = document.getElementById('errorMessage');
-             if (errorElement) {
-                 errorElement.textContent = message;
-             } else {
-                 const newErrorElement = document.createElement('p');
-                 newErrorElement.id = 'errorMessage';
-                 newErrorElement.style.color = 'red';
-                 newErrorElement.textContent = message;
-                 document.getElementById('loginForm').insertAdjacentElement('afterend', newErrorElement);
              }
          }
 
