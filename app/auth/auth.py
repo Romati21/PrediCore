@@ -2,7 +2,7 @@ from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt, ExpiredSignatureError
 from passlib.context import CryptContext
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from app import models, schemas
 from app.database import get_db
@@ -42,18 +42,29 @@ def authenticate_user(db: Session, username: str, password: str):
 
     # Проверяем, не заблокирован ли пользователь
     if user.failed_login_attempts >= MAX_FAILED_ATTEMPTS:
-        time_since_last_failed = datetime.utcnow() - user.last_failed_login
-        if time_since_last_failed < timedelta(minutes=LOCKOUT_TIME):
-            raise HTTPException(status_code=403, detail="Аккаунт временно заблокирован. Попробуйте позже.")
-        else:
-            # Сбрасываем счетчик попыток, если прошло достаточно времени
-            user.failed_login_attempts = 0
-            db.commit()
+        current_time = datetime.now(timezone.utc)
+
+        # Убедимся, что last_failed_login имеет timezone
+        last_failed = user.last_failed_login
+        if last_failed and last_failed.tzinfo is None:
+            last_failed = last_failed.replace(tzinfo=timezone.utc)
+
+        if last_failed:
+            time_since_last_failed = current_time - last_failed
+            if time_since_last_failed < timedelta(minutes=LOCKOUT_TIME):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Аккаунт временно заблокирован. Попробуйте через {LOCKOUT_TIME - time_since_last_failed.minutes} минут."
+                )
+            else:
+                # Сбрасываем счетчик попыток, если прошло достаточно времени
+                user.failed_login_attempts = 0
+                db.commit()
 
     # Проверяем пароль
     if not verify_password(password, user.password_hash):
         user.failed_login_attempts += 1
-        user.last_failed_login = datetime.utcnow()
+        user.last_failed_login = datetime.now(timezone.utc)  # Используем timezone-aware datetime
         db.commit()
         return False
 
