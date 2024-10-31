@@ -10,6 +10,8 @@ from app.database import get_db
 from passlib.context import CryptContext
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from app.auth.auth import get_current_user_optional
+from typing import Optional
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -87,9 +89,15 @@ async def reset_password(
     return RedirectResponse(url="/login", status_code=303)
 
 @router.get("/forgot_password", response_class=HTMLResponse)
-async def forgot_password_page(request: Request):
-    return templates.TemplateResponse("forgot_password.html", {"request": request})
+async def forgot_password_page(
+    request: Request,
+    current_user: Optional[models.User] = Depends(get_current_user_optional)
+):
+    return templates.TemplateResponse("forgot_password.html", {"request": request, "current_user": current_user})
 
 @router.get("/recovery", response_class=HTMLResponse)
-async def recovery_page(request: Request):
-    return templates.TemplateResponse("recovery.html", {"request": request})
+async def recovery_page(
+    request: Request,
+    current_user: Optional[models.User] = Depends(get_current_user_optional)
+):
+    return templates.TemplateResponse("recovery.html", {"request": request, "current_user": current_user})

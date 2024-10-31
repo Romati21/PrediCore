@@ -289,6 +289,19 @@ async def get_current_user(
 
     return user
 
+
+from typing import Optional
+
+async def get_current_user_optional(
+    request: Request,
+    db: Session = Depends(get_db)
+) -> Optional[models.User]:
+    try:
+        return await get_current_user(request, db)
+    except HTTPException:
+        return None
+
+
 async def get_current_active_user(current_user: schemas.User = Depends(get_current_user)):
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail="Неактивный пользователь")

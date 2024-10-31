@@ -31,6 +31,18 @@
          }
         </style>
     </head>
+
+    <!-- Добавляем отображение имени пользователя -->
+    <div style="position: absolute; top: 10px; right: 10px;">
+        {% if current_user %}
+        Вы вошли как: {{ current_user.username }} |
+        <form action="/logout" method="post" style="display:inline;">
+            <button type="submit" style="background:none;border:none;padding:0;margin:0;color:blue;text-decoration:underline;cursor:pointer;">Выйти</button>
+        </form>
+        {% else %}
+        Вы вошли как: Гость | <a href="/login">Войти</a>
+        {% endif %}
+    </div>
     <body>
         <h1>Чертежи для заказа {{ order.order_number }}</h1>
 

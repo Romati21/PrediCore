@@ -8,10 +8,10 @@ from sqlalchemy.orm import Session
 from app import models, schemas
 from app.database import get_db
 # from app.routes.auth import access_token_data
-from app.auth.auth import authenticate_user, create_access_token, get_password_hash, get_current_active_user, is_admin, create_refresh_token, refresh_access_token, get_current_user, SECRET_KEY, ALGORITHM
+from app.auth.auth import authenticate_user, create_access_token, get_password_hash, get_current_active_user, is_admin, create_refresh_token, refresh_access_token, get_current_user, SECRET_KEY, ALGORITHM, get_current_user_optional
 from datetime import timedelta, date, timezone
 from fastapi.templating import Jinja2Templates
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from app.auth.auth import authenticate_user, revoke_token
 import logging
 from datetime import datetime
@@ -42,8 +42,8 @@ router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
 @router.get("/register", response_class=HTMLResponse)
-async def register_page(request: Request):
-    return templates.TemplateResponse("register.html", {"request": request})
+async def register_page(request: Request, current_user: Optional[models.User] = Depends(get_current_user_optional)):
+    return templates.TemplateResponse("register.html", {"request": request, "current_user": current_user})
 
 @router.post("/register", response_model=schemas.User)
 async def register_user(
@@ -185,8 +185,11 @@ async def update_user_role(
         raise HTTPException(status_code=400, detail=f"Неверное значение роли: {str(e)}")
 
 @router.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request):
-    return templates.TemplateResponse("auth.html", {"request": request})
+async def login_page(
+    request: Request,
+    current_user: Optional[models.User] = Depends(get_current_user_optional)
+):
+    return templates.TemplateResponse("auth.html", {"request": request, "current_user": current_user})
 
 def get_moscow_time():
     moscow_tz = pytz.timezone('Europe/Moscow')
@@ -323,7 +326,7 @@ async def logout(
         except JWTError:
             logging.warning("Failed to decode token during logout")
 
-    response = JSONResponse(content={"message": "Successfully logged out"})
+    response = RedirectResponse(url="/", status_code=303)
     response.delete_cookie("access_token")
     response.delete_cookie("refresh_token")
 
@@ -391,7 +394,8 @@ async def cleanup_expired_tokens(db: Session):
 async def sessions_page(
     request: Request,
     temp_token: str = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[models.User] = Depends(get_current_user_optional)
 ):
     try:
         # Пытаемся получить токен из параметра URL или из куки
@@ -411,6 +415,9 @@ async def sessions_page(
                 active_sessions = models.UserSession.get_active_sessions(db, user.id)
                 active_sessions_count = models.UserSession.get_active_sessions_count(db, user.id)
 
+                # Устанавливаем current_user
+                current_user = user
+
                 return templates.TemplateResponse(
                     "sessions.html",
                     {
@@ -418,7 +425,8 @@ async def sessions_page(
                         "sessions": active_sessions,
                         "active_sessions_count": active_sessions_count,
                         "is_temp_access": True,
-                        "user": user
+                        "user": user,
+                        "current_user": current_user
                     }
                 )
             except JWTError as e:
@@ -430,6 +438,9 @@ async def sessions_page(
         active_sessions = models.UserSession.get_active_sessions(db, user.id)
         active_sessions_count = models.UserSession.get_active_sessions_count(db, user.id)
 
+        # Устанавливаем current_user
+        current_user = user
+
         return templates.TemplateResponse(
             "sessions.html",
             {
@@ -437,7 +448,8 @@ async def sessions_page(
                 "sessions": active_sessions,
                 "active_sessions_count": active_sessions_count,
                 "is_temp_access": False,
-                "user": user
+                "user": user,
+                "current_user": current_user
             }
         )
 

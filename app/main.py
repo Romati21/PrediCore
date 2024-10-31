@@ -41,6 +41,7 @@ from apscheduler.triggers.cron import CronTrigger
 from fastapi.middleware.cors import CORSMiddleware
 from app.middleware.token_refresh import TokenRefreshMiddleware, TokenUpdateMiddleware
 from app.services import cleanup_service
+from app.auth.auth import get_current_user_optional
 
 # Настройка логгирования
 logging.basicConfig(level=logging.INFO)
@@ -221,9 +222,13 @@ def calculate_file_hash(file_path):
             sha256_hash.update(byte_block)
     return sha256_hash.hexdigest()
 
+
 @app.get("/", response_class=HTMLResponse)
-async def read_root(request: Request):
-    return templates.TemplateResponse("form.html", {"request": request})
+async def read_root(
+    request: Request,
+    current_user: Optional[models.User] = Depends(get_current_user_optional)
+):
+    return templates.TemplateResponse("form.html", {"request": request, "current_user": current_user})
 
 
 
@@ -234,9 +239,13 @@ async def submit_data(batch_number: str = Form(...), part_number: str = Form(...
     return {"Успех": "Данные добавлены"}
 
 @app.get("/data", response_class=HTMLResponse)
-async def show_data(request: Request, db: Session = Depends(get_db)):
+async def show_data(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: Optional[models.User] = Depends(get_current_user_optional)
+):
     inventory = repository.get_inventory(db)
-    return templates.TemplateResponse("data.html", {"request": request, "data": inventory})
+    return templates.TemplateResponse("data.html", {"request": request, "data": inventory, "current_user": current_user})
 
 # @app.post("/api/create_order")
 # async def create_order(order: Order, db: Session = Depends(get_db)):
@@ -300,7 +309,12 @@ def save_qr_code(order, drawing):
     return os.path.relpath(qr_path, 'static')
 
 @app.get("/print_order/{order_id}", response_class=HTMLResponse)
-async def print_order(request: Request, order_id: int, db: Session = Depends(get_db)):
+async def print_order(
+    request: Request,
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: Optional[models.User] = Depends(get_current_user_optional)
+):
     order = db.query(models.ProductionOrder).filter(models.ProductionOrder.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
@@ -317,14 +331,28 @@ async def print_order(request: Request, order_id: int, db: Session = Depends(get
 
     qr_code_img = generate_qr_code_with_text(qr_code_data, order.order_number)
 
-
-    return templates.TemplateResponse("order_blank.html", {"request": request, "order": order, "qr_code_img": qr_code_img})
+    return templates.TemplateResponse(
+        "order_blank.html",
+        {
+            "request": request,
+            "order": order,
+            "qr_code_img": qr_code_img,
+            "current_user": current_user
+        }
+    )
 
 @app.get("/production_orders", response_class=HTMLResponse)
-async def show_production_orders(request: Request, db: Session = Depends(get_db)):
+async def show_production_orders(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: Optional[models.User] = Depends(get_current_user_optional)
+):
     orders = db.query(models.ProductionOrder).order_by(models.ProductionOrder.publication_date.desc()).all()
     logger.info(f"Получено {len(orders)} заказов из базы данных")
-    return templates.TemplateResponse("production_orders.html", {"request": request, "orders": orders})
+    return templates.TemplateResponse(
+        "production_orders.html",
+        {"request": request, "orders": orders, "current_user": current_user}
+    )
 
 
 
@@ -793,8 +821,8 @@ async def update_order(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/production_order_form", response_class=HTMLResponse)
-async def production_order_form(request: Request):
-    return templates.TemplateResponse("production_order_form.html", {"request": request, "order": None})
+async def production_order_form(request: Request, current_user: Optional[models.User] = Depends(get_current_user_optional)):
+    return templates.TemplateResponse("production_order_form.html", {"request": request, "order": None, "current_user": current_user})
 
 
 def process_drawing(drawing_path: str, order: models.ProductionOrder) -> str:
@@ -889,8 +917,14 @@ def process_drawing(drawing_path: str, order: models.ProductionOrder) -> str:
         logger.error(f"Ошибка при обработке чертежа: {str(e)}", exc_info=True)
         return None
 
-@app.get("/print_drawing/{order_id}/{drawing_id}")
-async def print_drawing(request: Request, order_id: int, drawing_id: int, db: Session = Depends(get_db)):
+@app.get("/print_drawing/{order_id}/{drawing_id}", response_class=HTMLResponse)
+async def print_drawing(
+    request: Request,
+    order_id: int,
+    drawing_id: int,
+    db: Session = Depends(get_db),
+    current_user: Optional[models.User] = Depends(get_current_user_optional)
+):
     order = db.query(models.ProductionOrder).filter(models.ProductionOrder.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
@@ -903,7 +937,8 @@ async def print_drawing(request: Request, order_id: int, drawing_id: int, db: Se
         "request": request,
         "order": order,
         "drawing": drawing,
-        "qr_code_path": order.qr_code_path
+        "qr_code_path": order.qr_code_path,
+        "current_user": current_user
     })
 
 def mm_to_pixels(mm, dpi):
@@ -1039,8 +1074,13 @@ def archive_old_drawing(drawing_path):
 
 
 
-@app.get("/view_drawing/{order_id}")
-async def view_drawing(request: Request, order_id: int, db: Session = Depends(get_db)):
+@app.get("/view_drawing/{order_id}", response_class=HTMLResponse)
+async def view_drawing(
+    request: Request,
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: Optional[models.User] = Depends(get_current_user_optional)
+):
     order = db.query(models.ProductionOrder).options(
         joinedload(models.ProductionOrder.drawings).joinedload(models.OrderDrawing.drawing)
     ).filter(models.ProductionOrder.id == order_id).first()
@@ -1061,11 +1101,17 @@ async def view_drawing(request: Request, order_id: int, db: Session = Depends(ge
         "request": request,
         "order": order,
         "drawings": drawing_info,
-        "qr_code_path": order.qr_code_path.replace('static/', '') if order.qr_code_path else None
+        "qr_code_path": order.qr_code_path.replace('static/', '') if order.qr_code_path else None,
+        "current_user": current_user
     })
 
-@app.get("/edit_production_order/{order_id}")
-async def edit_production_order(request: Request, order_id: int, db: Session = Depends(get_db)):
+@app.get("/edit_production_order/{order_id}", response_class=HTMLResponse)
+async def edit_production_order(
+    request: Request,
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: Optional[models.User] = Depends(get_current_user_optional)
+):
     order = db.query(models.ProductionOrder).filter(models.ProductionOrder.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
@@ -1086,11 +1132,17 @@ async def edit_production_order(request: Request, order_id: int, db: Session = D
         "request": request,
         "order": order,
         "drawings": drawings_info,
-        "qr_code_path": order.qr_code_path.replace('static/', '') if order.qr_code_path else None
+        "qr_code_path": order.qr_code_path.replace('static/', '') if order.qr_code_path else None,
+        "current_user": current_user
     })
 
-@app.get("/drawing_history/{order_id}")
-async def drawing_history(request: Request, order_id: int, db: Session = Depends(get_db)):
+@app.get("/drawing_history/{order_id}", response_class=HTMLResponse)
+async def drawing_history(
+    request: Request,
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: Optional[models.User] = Depends(get_current_user_optional)
+):
     order = db.query(models.ProductionOrder).filter(models.ProductionOrder.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
@@ -1120,7 +1172,8 @@ async def drawing_history(request: Request, order_id: int, db: Session = Depends
         "order": order,
         "current_drawings": process_drawings(current_drawings),
         "archived_drawings": process_drawings(archived_drawings),
-        "qr_code_path": order.qr_code_path[7:] if order.qr_code_path and order.qr_code_path.startswith("static/") else order.qr_code_path
+        "qr_code_path": order.qr_code_path[7:] if order.qr_code_path and order.qr_code_path.startswith("static/") else order.qr_code_path,
+        "current_user": current_user
     })
 
 @app.get("/api/orders")
