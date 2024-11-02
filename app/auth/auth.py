@@ -76,68 +76,23 @@ def authenticate_user(db: Session, username: str, password: str):
     return user
 
 
-async def refresh_access_token(
-    refresh_token: str,
-    db: Session,
-    request: Request
-) -> tuple[str, str, datetime]:
+def refresh_access_token(refresh_token: str) -> tuple[str, str]:
     """
     Создает новый access token используя refresh token
-    Возвращает (new_access_token, new_jti, expires_at)
+    Возвращает (token, jti)
     """
     try:
-        # Декодируем refresh token
+        # Декодируем refresh token с приведением типа
         payload = cast(TokenPayload, jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM]))
         username = get_username_from_payload(payload)
-        original_jti = payload.get("jti")
 
-        # Проверяем, не отозван ли refresh token
-        if await is_token_revoked(original_jti, db):
-            raise HTTPException(
-                status_code=401,
-                detail="Refresh token has been revoked"
-            )
-
-        # Получаем пользователя
-        user = get_user_by_username(db, username)
-        if not user:
-            raise HTTPException(
-                status_code=401,
-                detail="User not found"
-            )
-
-        # Находим активную сессию с этим refresh token
-        session = db.query(UserSession).filter(
-            UserSession.refresh_token_jti == original_jti,
-            UserSession.is_active == True
-        ).first()
-
-        if not session:
-            raise HTTPException(
-                status_code=401,
-                detail="Invalid session"
-            )
-
-        # Создаем новый access token
-        expires_delta = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-        current_time = datetime.now(timezone.utc)
-        expires_at = current_time + expires_delta
-
-        new_token, new_jti = create_access_token(
-            data={
-                "sub": username,
-                "session_id": session.id
-            },
-            request=request,
-            expires_delta=expires_delta
+        # Создаем новый access token с новым jti
+        token, jti = create_access_token(
+            data={"sub": username},
+            expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         )
 
-        # Обновляем сессию
-        session.access_token_jti = new_jti
-        session.last_activity = current_time
-        db.commit()
-
-        return new_token, new_jti, expires_at
+        return token, jti
 
     except ExpiredSignatureError:
         logging.error("Refresh token has expired")
@@ -400,76 +355,106 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    # Получаем токен из кук
-    token: Optional[str] = None
-    if 'access_token' in request.cookies:
-        auth_cookie = request.cookies.get('access_token')
-        if auth_cookie:
-            token = auth_cookie.replace('"', '').replace('Bearer ', '')
+    access_token = request.cookies.get('access_token')
+    refresh_token = request.cookies.get('refresh_token')
 
-    if not token:
+    if not access_token:
         raise credentials_exception
 
     try:
-        # Используем cast для приведения типа payload
-        payload = cast(TokenPayload, jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM]))
-        username = get_username_from_payload(payload)
+        token = access_token.replace('"', '').replace('Bearer ', '')
+        payload = cast(dict, jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM]))
+        username = str(payload.get("sub", ""))
+        
+        if not username:
+            raise credentials_exception
 
     except ExpiredSignatureError:
-        # Специальная обработка истекшего токена
-        if 'refresh_token' in request.cookies:
-            refresh_token = request.cookies.get('refresh_token')
-            if not refresh_token:
-                raise credentials_exception
-                
+        if refresh_token:
             try:
-                # Пробуем создать новый access token
+                # Декодируем refresh token для проверки срока действия
+                refresh_payload = cast(dict, jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM]))
+                exp_timestamp = int(refresh_payload.get("exp", 0))
+                current_time = int(datetime.now(timezone.utc).timestamp())
+                
+                # Проверяем, не истекает ли refresh token в ближайшие 24 часа
+                time_until_expiry = exp_timestamp - current_time
+                should_refresh_token = time_until_expiry < 24 * 60 * 60  # 24 часа в секундах
+
+                # Создаем новый access token
                 new_token, new_jti = refresh_access_token(refresh_token)
-
-                # Сохраняем информацию для middleware
-                request.state.new_access_token = {
-                    'token': new_token,
-                    'jti': new_jti,
-                    'expires_in': ACCESS_TOKEN_EXPIRE_MINUTES * 60
+                
+                # Инициализируем переменные для новых токенов
+                new_refresh_token = None
+                new_refresh_jti = None
+                
+                # Если refresh token скоро истечет, создаем новый
+                if should_refresh_token:
+                    logging.info("Refresh token will expire soon, creating new one")
+                    new_refresh_token, new_refresh_jti = create_refresh_token(
+                        data={"sub": str(refresh_payload.get("sub", ""))}
+                    )
+                    
+                # Формируем информацию о токенах для middleware
+                tokens_info = {
+                    'access_token': {
+                        'token': new_token,
+                        'jti': new_jti,
+                        'expires_in': ACCESS_TOKEN_EXPIRE_MINUTES * 60
+                    }
                 }
-
-                # Декодируем новый токен с приведением типа
-                payload = cast(TokenPayload, jwt.decode(new_token, SECRET_KEY, algorithms=[ALGORITHM]))
-                username = get_username_from_payload(payload)
-
-                # Декодируем refresh token с приведением типа
-                refresh_payload = cast(TokenPayload, jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM]))
-                refresh_jti = refresh_payload.get('jti')
                 
-                if not refresh_jti or not isinstance(refresh_jti, str):
-                    raise credentials_exception
-
-                # Обновляем сессию в БД
-                session = db.query(models.UserSession).filter(
-                    models.UserSession.refresh_token_jti == refresh_jti
-                ).first()
+                if should_refresh_token and new_refresh_token and new_refresh_jti:
+                    tokens_info['refresh_token'] = {
+                        'token': new_refresh_token,
+                        'jti': new_refresh_jti,
+                        'expires_in': REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
+                    }
                 
-                if session:
-                    session.access_token_jti = new_jti
-                    session.last_activity = datetime.now(timezone.utc)
-                    db.commit()
+                request.state.new_tokens = tokens_info
+
+                # Получаем данные из нового токена
+                new_payload = cast(dict, jwt.decode(new_token, SECRET_KEY, algorithms=[ALGORITHM]))
+                username = str(new_payload.get("sub", ""))
+                
+                # Получаем текущий refresh_jti
+                current_refresh_jti = str(refresh_payload.get("jti", ""))
+                
+                if current_refresh_jti:
+                    session = db.query(models.UserSession).filter(
+                        models.UserSession.refresh_token_jti == current_refresh_jti,
+                        models.UserSession.is_active == True
+                    ).first()
+                    
+                    if session:
+                        # Обновляем сессию
+                        session.access_token_jti = new_jti
+                        if should_refresh_token and new_refresh_jti:
+                            session.refresh_token_jti = new_refresh_jti
+                        session.last_activity = datetime.now(timezone.utc)
+                        db.commit()
+                        
+                        log_message = f"Session updated for user {username}"
+                        if should_refresh_token:
+                            log_message += " with new refresh token"
+                        logging.info(log_message)
 
             except (JWTError, ExpiredSignatureError) as e:
-                logging.error(f"Token refresh error: {str(e)}")
+                logging.error(f"Refresh token error: {str(e)}")
                 raise credentials_exception
         else:
             raise credentials_exception
 
-    except JWTError:
+    except JWTError as e:
+        logging.error(f"Token validation error: {str(e)}")
         raise credentials_exception
 
+    # Получаем пользователя
     user = db.query(models.User).filter(models.User.username == username).first()
-    if user is None:
+    if not user:
         raise credentials_exception
 
     return user
-
-
 
 async def get_current_user_optional(
     request: Request,
