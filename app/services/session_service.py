@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from ipaddress import ip_address, IPv4Address, IPv6Address
 from sqlalchemy.orm import Session
 from app.models import UserSession, User
@@ -37,7 +37,7 @@ class SessionService:
     ) -> None:
         """Очистка старых неактивных сессий"""
         try:
-            cutoff_date = datetime.utcnow() - timedelta(days=max_age_days)
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=max_age_days)
             result = db.query(UserSession).filter(
                 UserSession.user_id == user_id,
                 UserSession.last_activity < cutoff_date,
@@ -74,7 +74,7 @@ class SessionService:
                 user_id=user.id,
                 ip_address=ip_address,
                 user_agent=user_agent,
-                last_activity=datetime.utcnow(),
+                last_activity=datetime.now(timezone.utc),
                 access_token_jti=access_token_jti,
                 refresh_token_jti=refresh_token_jti
             )

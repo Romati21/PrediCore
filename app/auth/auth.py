@@ -1,5 +1,3 @@
-
-
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt, ExpiredSignatureError
@@ -78,23 +76,68 @@ def authenticate_user(db: Session, username: str, password: str):
     return user
 
 
-def refresh_access_token(refresh_token: str) -> tuple[str, str]:
+async def refresh_access_token(
+    refresh_token: str,
+    db: Session,
+    request: Request
+) -> tuple[str, str, datetime]:
     """
     Создает новый access token используя refresh token
-    Возвращает (token, jti)
+    Возвращает (new_access_token, new_jti, expires_at)
     """
     try:
-        # Декодируем refresh token с приведением типа
+        # Декодируем refresh token
         payload = cast(TokenPayload, jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM]))
         username = get_username_from_payload(payload)
+        original_jti = payload.get("jti")
 
-        # Создаем новый access token с новым jti
-        token, jti = create_access_token(
-            data={"sub": username},
-            expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        # Проверяем, не отозван ли refresh token
+        if await is_token_revoked(original_jti, db):
+            raise HTTPException(
+                status_code=401,
+                detail="Refresh token has been revoked"
+            )
+
+        # Получаем пользователя
+        user = get_user_by_username(db, username)
+        if not user:
+            raise HTTPException(
+                status_code=401,
+                detail="User not found"
+            )
+
+        # Находим активную сессию с этим refresh token
+        session = db.query(UserSession).filter(
+            UserSession.refresh_token_jti == original_jti,
+            UserSession.is_active == True
+        ).first()
+
+        if not session:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid session"
+            )
+
+        # Создаем новый access token
+        expires_delta = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        current_time = datetime.now(timezone.utc)
+        expires_at = current_time + expires_delta
+
+        new_token, new_jti = create_access_token(
+            data={
+                "sub": username,
+                "session_id": session.id
+            },
+            request=request,
+            expires_delta=expires_delta
         )
 
-        return token, jti
+        # Обновляем сессию
+        session.access_token_jti = new_jti
+        session.last_activity = current_time
+        db.commit()
+
+        return new_token, new_jti, expires_at
 
     except ExpiredSignatureError:
         logging.error("Refresh token has expired")

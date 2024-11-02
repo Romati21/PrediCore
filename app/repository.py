@@ -3,16 +3,16 @@ from sqlalchemy.sql import func
 from app import models, schemas
 import random
 import string
-from datetime import date
+from datetime import date, timezone
 from typing import Union
 from datetime import datetime
 from typing import List
 
-def generate_unique_id(db: Session):
-    while True:
-        unique_id = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
-        if not db.query(models.Order).filter(models.Order.order_id == unique_id).first():
-            return unique_id
+# def generate_unique_id(db: Session):
+#     while True:
+#         unique_id = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+#         if not db.query(models.Order).filter(models.Order.order_id == unique_id).first():
+#             return unique_id
 
 def create_order(db: Session, order_number: str, customer_name: str, product_name: str, quantity: int):
     print(f"Creating order with parameters: order_number={order_number}, customer_name={customer_name}, product_name={product_name}, quantity={quantity}")
@@ -72,7 +72,7 @@ def get_drawing_by_hash(db: Session, hash: str):
     return db.query(models.Drawing).filter(models.Drawing.hash == hash).first()
 
 def update_drawing_last_used(db: Session, drawing_id: int):
-    db.query(models.Drawing).filter(models.Drawing.id == drawing_id).update({"last_used_at": datetime.utcnow()})
+    db.query(models.Drawing).filter(models.Drawing.id == drawing_id).update({"last_used_at": datetime.now(timezone.utc)})
     db.commit()
 
 def create_order_drawing(db: Session, order_id: int, drawing_id: int):

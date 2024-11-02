@@ -381,7 +381,7 @@ async def revoke_all_user_tokens(
 
 async def cleanup_expired_tokens(db: Session):
     try:
-        current_time = datetime.utcnow()
+        current_time = datetime.now(timezone.utc)
         db.query(RevokedToken).filter(
             RevokedToken.expires_at < current_time
         ).delete()

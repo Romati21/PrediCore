@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -42,15 +42,15 @@ def get_password_hash(password):
 def create_access_token(
     data: dict,
     request: Request = None,
-    expires_delta: timedelta = None
+    expires_delta: Optional[timedelta] = None
 ) -> Dict[str, str]:
     to_encode = data.copy()
     jti = str(uuid.uuid4())
 
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 
     to_encode.update({
         "exp": expire,
@@ -99,7 +99,7 @@ def create_user(db: Session, user: UserCreate):
     return db_user
 
 def create_user_session(db: Session, user_id: int, token: str):
-    expires_at = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     db_session = UserSession(user_id=user_id, token=token, expires_at=expires_at)
     db.add(db_session)
     db.commit()

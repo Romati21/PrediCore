@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Date, Time, Boolean, ForeignKey, Enum, CheckConstraint, SmallInteger, Index
+from sqlalchemy import Column, Integer, String, DateTime, Date, Time, Boolean, ForeignKey, Enum, CheckConstraint, SmallInteger, Index, func, or_
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -81,7 +81,12 @@ class UserSession(Base):
     ip_address = Column(String(45), nullable=False)
     user_agent = Column(String(255))
     last_activity = Column(DateTime(timezone=True), nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # Изменяем default для created_at
+    created_at = Column(
+        DateTime(timezone=True), 
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False
+    )
     is_active = Column(Boolean, default=True)
     access_token_jti = Column(String(36), unique=True)
     refresh_token_jti = Column(String(36), unique=True)
@@ -97,20 +102,13 @@ class UserSession(Base):
         if not self.is_active:
             return True
 
-        # Используем timezone-aware datetime
         current_time = datetime.now(timezone.utc)
 
-        # Проверка установленного времени истечения
         if self.expired_at and self.expired_at < current_time:
             return True
 
-        # Убедимся, что last_activity имеет timezone информацию
-        last_activity = self.last_activity
-        if last_activity.tzinfo is None:
-            last_activity = last_activity.replace(tzinfo=timezone.utc)
-
-        # Проверка последней активности (7 дней)
-        if last_activity < current_time - timedelta(days=7):
+        # Упрощаем проверку last_activity, так как у нас timezone=True
+        if self.last_activity < current_time - timedelta(days=7):
             return True
 
         return False
@@ -118,70 +116,86 @@ class UserSession(Base):
     def update_activity(self, db: Session) -> None:
         """Обновление времени последней активности"""
         self.last_activity = datetime.now(timezone.utc)
-        db.commit()
+        try:
+            db.commit()
+        except Exception as e:
+            logging.error(f"Error updating activity: {str(e)}")
+            db.rollback()
+            raise
 
     async def expire_session(self, db: Session, reason: str) -> None:
         """Принудительное истечение сессии"""
-        self.is_active = False
-        self.expired_at = datetime.now(timezone.utc)
-        self.cleanup_reason = reason
-        db.commit()
-        
-        await self.revoke_tokens(db, self.user, reason)
+        try:
+            self.is_active = False
+            self.expired_at = datetime.now(timezone.utc)
+            self.cleanup_reason = reason
+            db.commit()
+            
+            await self.revoke_tokens(db, self.user, reason)
+        except Exception as e:
+            logging.error(f"Error expiring session: {str(e)}")
+            db.rollback()
+            raise
 
     @classmethod
     def get_active_sessions_count(cls, db: Session, user_id: int) -> int:
         """Получение количества активных сессий пользователя"""
-        current_time = datetime.now(timezone.utc)
-        return db.query(cls).filter(
-            cls.user_id == user_id,
-            cls.is_active == True,
-            or_(
-                cls.expired_at.is_(None),
-                cls.expired_at > current_time
-            )
-        ).count()
+        try:
+            current_time = datetime.now(timezone.utc)
+            return db.query(cls).filter(
+                cls.user_id == user_id,
+                cls.is_active == True,  # используйте is True для совместимости с Python
+                or_(
+                    cls.expired_at.is_(None),
+                    cls.expired_at > current_time
+                )
+            ).count()
+        except Exception as e:
+            logging.error(f"Error getting active sessions count: {str(e)}")
+            raise
 
     @classmethod
     def get_active_sessions(cls, db: Session, user_id: int) -> List["UserSession"]:
         """Получение активных сессий пользователя"""
-        current_time = datetime.now(timezone.utc)
-        return db.query(cls).filter(
-            cls.user_id == user_id,
-            cls.is_active == True,
-            or_(
-                cls.expired_at.is_(None),
-                cls.expired_at > current_time
-            )
-        ).order_by(cls.last_activity.desc()).all()
+        try:
+            current_time = datetime.now(timezone.utc)
+            return db.query(cls).filter(
+                cls.user_id == user_id,
+                cls.is_active.is_(True),  # лучше использовать is_()
+                or_(
+                    cls.expired_at.is_(None),
+                    cls.expired_at > current_time
+                )
+            ).order_by(cls.last_activity.desc()).all()
+        except Exception as e:
+            logging.error(f"Error getting active sessions: {str(e)}")
+            raise
 
-    async def revoke_tokens(self, db: Session, revoked_by_user: User, reason: str):
+    async def revoke_tokens(self, db: Session, revoked_by_user: User, reason: str) -> None:
         """Отзыв всех токенов сессии"""
         try:
             current_time = datetime.now(timezone.utc)
-
-            logging.info(f"Attempting to revoke tokens for session {self.id}")
-
+            
             if self.access_token_jti:
-                logging.info(f"Revoking access token {self.access_token_jti}")
+                access_token_expiry = current_time + timedelta(minutes=30)
                 revoked_access = RevokedToken(
                     jti=self.access_token_jti,
                     session_id=self.id,
                     revoked_at=current_time,
-                    expires_at=current_time + timedelta(minutes=30),
+                    expires_at=access_token_expiry,
                     revoked_by_user_id=revoked_by_user.id,
                     reason=reason,
                     token_type="access"
                 )
                 db.add(revoked_access)
-
+                
             if self.refresh_token_jti:
-                logging.info(f"Revoking refresh token {self.refresh_token_jti}")
+                refresh_token_expiry = current_time + timedelta(days=7)
                 revoked_refresh = RevokedToken(
                     jti=self.refresh_token_jti,
                     session_id=self.id,
                     revoked_at=current_time,
-                    expires_at=current_time + timedelta(days=7),
+                    expires_at=refresh_token_expiry,
                     revoked_by_user_id=revoked_by_user.id,
                     reason=reason,
                     token_type="refresh"
@@ -191,20 +205,14 @@ class UserSession(Base):
             self.is_active = False
             self.expired_at = current_time
             self.cleanup_reason = reason
-            logging.info(f"Setting session {self.id} as inactive")
 
-            try:
-                db.commit()
-                logging.info(f"Successfully revoked tokens for session {self.id}")
-            except Exception as commit_error:
-                logging.error(f"Error during commit: {str(commit_error)}")
-                db.rollback()
-                raise
-
+            db.commit()
+            
         except Exception as e:
             logging.error(f"Error in revoke_tokens: {str(e)}")
             db.rollback()
             raise
+
 
 
 User.sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
