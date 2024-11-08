@@ -44,7 +44,15 @@ from app.services import cleanup_service
 from app.auth.auth import get_current_user_optional
 
 # Настройка логгирования
-logging.basicConfig(level=logging.INFO)
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('logs/token_refresh.log'),
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger(__name__)
 
 

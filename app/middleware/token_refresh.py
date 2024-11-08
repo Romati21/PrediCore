@@ -1,15 +1,15 @@
-# app/middleware/token_refresh.py
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi import Request, Response
-from typing import Optional
 import logging
 
 class TokenRefreshMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
+        # Выполняем запрос
         response = await call_next(request)
-        
-        # Проверяем наличие информации о новых токенах
+
+        # Проверяем наличие новых токенов
         tokens_info = getattr(request.state, 'new_tokens', None)
+
         if tokens_info and isinstance(response, Response):
             try:
                 # Устанавливаем новый access token
@@ -17,15 +17,15 @@ class TokenRefreshMiddleware(BaseHTTPMiddleware):
                     access_info = tokens_info['access_token']
                     response.set_cookie(
                         key="access_token",
-                        value=access_info['token'],
+                        value=f"Bearer {access_info['token']}",  # Добавляем префикс Bearer
                         max_age=access_info['expires_in'],
                         httponly=True,
                         samesite='lax',
                         secure=request.url.scheme == "https"
                     )
-                    logging.info("Access token refreshed successfully")
+                    logging.info("Access token updated")
 
-                # Устанавливаем новый refresh token, если он есть
+                # Устанавливаем новый refresh token если есть
                 if 'refresh_token' in tokens_info:
                     refresh_info = tokens_info['refresh_token']
                     response.set_cookie(
@@ -36,27 +36,13 @@ class TokenRefreshMiddleware(BaseHTTPMiddleware):
                         samesite='lax',
                         secure=request.url.scheme == "https"
                     )
-                    logging.info("Refresh token updated successfully")
+                    logging.info("Refresh token updated")
 
             except Exception as e:
-                logging.error(f"Error setting refreshed tokens: {str(e)}")
+                logging.error(f"Error setting tokens in cookies: {str(e)}")
 
         return response
 
-# class TokenUpdateMiddleware(BaseHTTPMiddleware):
-#     async def dispatch(self, request: Request, call_next) -> Response:
-#         response = await call_next(request)
 
-#         # Если есть новый access token в state, обновляем куки
-#         new_token = getattr(request.state, 'new_access_token', None)
-#         if new_token:
-#             response.set_cookie(
-#                 key="access_token",
-#                 value=new_token,
-#                 httponly=True,
-#                 samesite='lax',
-#                 secure=request.url.scheme == "https",
-#                 max_age=1800
-#             )
-
-#         return response
+def foo():
+    print("Hello, World!")
