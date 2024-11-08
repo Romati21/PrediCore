@@ -36,7 +36,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.schedulers import SchedulerAlreadyRunningError
 from app.routes import auth, recovery
 from app.database import get_db
-from app.tasks import cleanup_unused_drawings, clean_temp_folder
+from app.tasks import  clean_temp_folder
 from apscheduler.triggers.cron import CronTrigger
 from fastapi.middleware.cors import CORSMiddleware
 from app.middleware.token_refresh import TokenRefreshMiddleware
@@ -457,22 +457,22 @@ async def create_order(
 ):
     try:
         logger.info("Starting order creation process")
-        
+
         # Проверяем наличие загруженных файлов
         if not drawing_files or (len(drawing_files) == 1 and not drawing_files[0].filename):
             logger.info("No drawing files uploaded, using default template")
-            
+
             # Путь к файлу-заглушке
             default_drawing_path = "static/drawings/default_drawing.png"
-            
+
             # Создаем SpooledTemporaryFile для хранения содержимого
             temp_file = tempfile.SpooledTemporaryFile()
-            
+
             # Копируем содержимое файла-заглушки во временный файл
             with open(default_drawing_path, 'rb') as f:
                 shutil.copyfileobj(f, temp_file)
                 temp_file.seek(0)  # Возвращаем указатель в начало файла
-            
+
             # Создаем объект UploadFile с использованием стандартного конструктора
             default_file = UploadFile(
                 file=temp_file,
@@ -482,7 +482,7 @@ async def create_order(
                     "content-disposition": f'attachment; filename="default_drawing.png"'
                 }
             )
-            
+
             drawing_files = [default_file]
             logger.info("Default drawing template prepared")
 
@@ -547,7 +547,7 @@ async def create_order(
         await manager.broadcast(json.dumps({"action": "new_order", "order": new_order.to_dict()}))
 
         return JSONResponse(content={
-            "message": "Order created successfully", 
+            "message": "Order created successfully",
             "order_id": new_order.id,
             "order_number": new_order.order_number,
             "processed_files": processed_files
@@ -654,7 +654,7 @@ async def update_production_order(
         await manager.broadcast(update_message)
 
         return JSONResponse(content={
-            "message": "Order updated successfully", 
+            "message": "Order updated successfully",
             "order_id": order.id,
             "order_number": order.order_number
         }, status_code=200)

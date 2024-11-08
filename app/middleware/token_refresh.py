@@ -42,7 +42,3 @@ class TokenRefreshMiddleware(BaseHTTPMiddleware):
                 logging.error(f"Error setting tokens in cookies: {str(e)}")
 
         return response
-
-
-def foo():
-    print("Hello, World!")
