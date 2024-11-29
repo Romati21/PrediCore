@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app import models, schemas
 from app.database import get_db
 # from app.routes.auth import access_token_data
-from app.auth.auth import authenticate_user, create_access_token, get_password_hash, get_current_active_user, is_admin, create_refresh_token, refresh_access_token, get_current_user, SECRET_KEY, ALGORITHM, get_current_user_optional
+from app.auth.auth import authenticate_user, create_access_token, get_password_hash, get_current_active_user, is_admin, create_refresh_token, refresh_access_token, get_current_user, SECRET_KEY, ALGORITHM, get_current_user_optional, ACCESS_TOKEN_EXPIRE_MINUTES
 from datetime import timedelta, date, timezone
 from fastapi.templating import Jinja2Templates
 from typing import Dict, Any, Optional
@@ -20,6 +20,7 @@ from contextlib import contextmanager
 from app.services import session_service
 from fastapi.responses import RedirectResponse
 from app.services import cleanup_service
+from app.schemas import RefreshTokenRequest
 
 @contextmanager
 def transaction(db: Session):
@@ -102,9 +103,35 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
 
 @router.post("/token/refresh", response_model=schemas.Token)
-async def refresh_token_endpoint(refresh_token: str, db: Session = Depends(get_db)):
-    new_access_token = refresh_access_token(refresh_token)
-    return {"access_token": new_access_token, "refresh_token": refresh_token, "token_type": "bearer"}
+async def refresh_token_endpoint(
+    token_request: RefreshTokenRequest,
+    db: Session = Depends(get_db)
+):
+    try:
+        # Декодируем refresh_token
+        payload = jwt.decode(token_request.refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("type") != "refresh":
+            raise HTTPException(status_code=401, detail="Invalid token type")
+
+        # Проверяем, не отозван ли токен
+        jti = payload.get("jti")
+        if db.query(RevokedToken).filter(RevokedToken.jti == jti).first():
+            raise HTTPException(status_code=401, detail="Token has been revoked")
+
+        # Создаем новый access_token
+        new_access_token, _ = create_access_token(
+            data={"sub": payload["sub"]},
+            expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        )
+
+        # Возвращаем корректный ответ
+        return {
+            "access_token": new_access_token,
+            "refresh_token": token_request.refresh_token,  # Можно создать новый refresh_token, если необходимо
+            "token_type": "bearer"
+        }
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 
 @router.get("/users/me/", response_model=schemas.User)
@@ -225,7 +252,7 @@ async def login_user(
                 "temp_access": True,
                 "purpose": "session_management"
             },
-        expires_delta=timedelta(minutes=5)
+        expires_delta=timedelta(minutes=10)
     )
 
 

@@ -13,9 +13,9 @@ import secrets
 import uuid
 
 # Настройки JWT
-SECRET_KEY = secrets.token_hex(32)  # Генерирует 64-символьный
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+# SECRET_KEY = secrets.token_hex(32)  # Генерирует 64-символьный
+# ALGORITHM = "HS256"
+# ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")

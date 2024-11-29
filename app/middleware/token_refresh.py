@@ -1,44 +1,58 @@
-from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi import Request, Response
+from starlette.middleware.base import BaseHTTPMiddleware
+from datetime import datetime, timezone
+from jose import jwt
+from app.auth.auth import refresh_access_token, SECRET_KEY, ALGORITHM
 import logging
+from starlette.datastructures import Headers
 
 class TokenRefreshMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
-        # Выполняем запрос
-        response = await call_next(request)
+        access_token = request.cookies.get("access_token")
+        refresh_token = request.cookies.get("refresh_token")
 
-        # Проверяем наличие новых токенов
-        tokens_info = getattr(request.state, 'new_tokens', None)
+        logging.debug(f"Incoming access_token: {access_token}")
+        logging.debug(f"Incoming refresh_token: {refresh_token}")
 
-        if tokens_info and isinstance(response, Response):
+        if access_token and refresh_token:
             try:
-                # Устанавливаем новый access token
-                if 'access_token' in tokens_info:
-                    access_info = tokens_info['access_token']
+                payload = jwt.decode(
+                    access_token.replace('Bearer ', '').replace('"', ''),
+                    SECRET_KEY,
+                    algorithms=[ALGORITHM],
+                    options={"verify_exp": False}
+                )
+                exp_timestamp = payload.get("exp", 0)
+                current_time = datetime.now(timezone.utc).timestamp()
+
+                # Если токен истекает через 5 минут или уже истек
+                if (exp_timestamp - current_time) < 300:
+                    new_access_token, _ = refresh_access_token(refresh_token)
+
+                    logging.debug(f"Generated new access_token: {new_access_token}")
+
+                    # Устанавливаем обновленный токен в cookies
+                    response = await call_next(request)
                     response.set_cookie(
                         key="access_token",
-                        value=f"Bearer {access_info['token']}",  # Добавляем префикс Bearer
-                        max_age=access_info['expires_in'],
+                        value=new_access_token,
                         httponly=True,
                         samesite='lax',
-                        secure=request.url.scheme == "https"
+                        max_age=1800
                     )
-                    logging.info("Access token updated")
 
-                # Устанавливаем новый refresh token если есть
-                if 'refresh_token' in tokens_info:
-                    refresh_info = tokens_info['refresh_token']
-                    response.set_cookie(
-                        key="refresh_token",
-                        value=refresh_info['token'],
-                        max_age=refresh_info['expires_in'],
-                        httponly=True,
-                        samesite='lax',
-                        secure=request.url.scheme == "https"
+                    # Создаем новый объект запроса с обновленным заголовком
+                    updated_headers = Headers(
+                        {**request.headers, "Authorization": f"Bearer {new_access_token}"}
                     )
-                    logging.info("Refresh token updated")
+                    request = Request(
+                        scope={**request.scope, "headers": updated_headers.raw},
+                        receive=request.receive
+                    )
+
+                    return await call_next(request)
 
             except Exception as e:
-                logging.error(f"Error setting tokens in cookies: {str(e)}")
+                logging.error(f"Error refreshing token: {e}")
 
-        return response
+        return await call_next(request)
