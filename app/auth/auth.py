@@ -23,8 +23,8 @@ import logging
 SECRET_KEY = "0915c30082502482c60dee76b9eda80c434d8b8e637c020865db0bfc836012f31874884c0c0512ae3954bf0edfb8d87bb3e32cc978b8f042f5df22851aa3318a"
 # SECRET_KEY = secrets.token_hex(32)  # Генерирует 64-символьный
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 15
-REFRESH_TOKEN_EXPIRE_DAYS = 7  # Refresh-токен истекает через 7 дней
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
@@ -365,38 +365,36 @@ async def get_current_user(request: Request, db: Session = Depends(get_db)) -> m
         exp_timestamp = int(payload.get("exp", 0))
         current_time = int(datetime.now(timezone.utc).timestamp())
 
+        username = payload.get("sub")
+        if not username:
+            raise credentials_exception
+
+        user = db.query(models.User).filter(models.User.username == username).first()
+        if not user:
+            raise credentials_exception
+
+        # Если токен истекает скоро или уже истек
         if current_time > exp_timestamp or (exp_timestamp - current_time) < 300:
             if not refresh_token:
                 logging.debug("Refresh token отсутствует")
                 raise credentials_exception
 
-            logging.debug("Access token истек, обновляем")
-            new_token, _ = refresh_access_token(refresh_token)
-            payload = jwt.decode(new_token, SECRET_KEY, algorithms=[ALGORITHM])
+            try:
+                logging.debug("Access token истек, обновляем")
+                new_access_token, _ = refresh_access_token(refresh_token)
+                
+                # Устанавливаем новый access token в response
+                request.state.new_access_token = new_access_token
+                
+            except (JWTError, ValueError) as e:
+                logging.error(f"Error refreshing token: {str(e)}")
+                raise credentials_exception
 
-            response = Response()
-            response.set_cookie(
-                key="access_token",
-                value=new_token,
-                httponly=True,
-                samesite='lax',
-                max_age=1800
-            )
-            return response
-
-        username = payload.get("sub")
-        if not username:
-            raise credentials_exception
+        return user
 
     except JWTError as e:
         logging.error(f"Error in get_current_user: {str(e)}")
         raise credentials_exception
-
-    user = db.query(models.User).filter(models.User.username == username).first()
-    if not user:
-        raise credentials_exception
-
-    return user
 
 async def get_current_user_optional(
     request: Request,
@@ -423,3 +421,18 @@ def is_admin(
             detail="Недостаточно прав для выполнения операции"
         )
     return current_user
+
+def get_cookie_settings(request: Request) -> dict:
+    """Возвращает стандартные настройки для cookie"""
+    return {
+        "httponly": True,
+        "samesite": 'lax',
+        "secure": request.url.scheme == "https",
+    }
+
+def get_token_expiration() -> dict:
+    """Возвращает время истечения для токенов"""
+    return {
+        "access_token": ACCESS_TOKEN_EXPIRE_MINUTES * 60,  # в секундах
+        "refresh_token": REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,  # в секундах
+    }

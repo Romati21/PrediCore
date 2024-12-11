@@ -8,7 +8,13 @@ from sqlalchemy.orm import Session
 from app import models, schemas
 from app.database import get_db
 # from app.routes.auth import access_token_data
-from app.auth.auth import authenticate_user, create_access_token, get_password_hash, get_current_active_user, is_admin, create_refresh_token, refresh_access_token, get_current_user, SECRET_KEY, ALGORITHM, get_current_user_optional, ACCESS_TOKEN_EXPIRE_MINUTES
+from app.auth.auth import (
+    authenticate_user, create_access_token, get_password_hash, 
+    get_current_active_user, is_admin, create_refresh_token, 
+    refresh_access_token, get_current_user, SECRET_KEY, 
+    ALGORITHM, get_current_user_optional, ACCESS_TOKEN_EXPIRE_MINUTES,
+    get_cookie_settings, get_token_expiration
+)
 from datetime import timedelta, date, timezone
 from fastapi.templating import Jinja2Templates
 from typing import Dict, Any, Optional
@@ -252,9 +258,8 @@ async def login_user(
                 "temp_access": True,
                 "purpose": "session_management"
             },
-        expires_delta=timedelta(minutes=10)
-    )
-
+            expires_delta=timedelta(minutes=10)
+        )
 
         response = JSONResponse(
             content={
@@ -265,13 +270,12 @@ async def login_user(
             status_code=200
         )
 
+        cookie_settings = get_cookie_settings(request)
         response.set_cookie(
             key="temp_token",
             value=temp_token,
-            max_age=300,
-            httponly=True,
-            samesite='lax',
-            secure=request.url.scheme == "https"
+            max_age=600,  # 10 минут
+            **cookie_settings
         )
 
         return response
@@ -303,23 +307,21 @@ async def login_user(
 
     response = JSONResponse(content={"success": True, "message": "Успешный вход"})
 
-    cookie_settings = {
-        "httponly": True,
-        "samesite": 'lax',
-        "secure": request.url.scheme == "https"
-    }
+    cookie_settings = get_cookie_settings(request)
+    token_expiration = get_token_expiration()
 
+    # Устанавливаем токены в cookies с правильными сроками действия
     response.set_cookie(
         key="access_token",
         value=access_token,
-        max_age=1800,
+        max_age=token_expiration["access_token"],
         **cookie_settings
     )
 
     response.set_cookie(
         key="refresh_token",
         value=refresh_token,
-        max_age=604800,
+        max_age=token_expiration["refresh_token"],
         **cookie_settings
     )
 
