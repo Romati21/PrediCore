@@ -110,6 +110,7 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
 
 @router.post("/token/refresh", response_model=schemas.Token)
 async def refresh_token_endpoint(
+    request: Request,
     token_request: RefreshTokenRequest,
     db: Session = Depends(get_db)
 ):
@@ -117,28 +118,101 @@ async def refresh_token_endpoint(
         # Декодируем refresh_token
         payload = jwt.decode(token_request.refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
         if payload.get("type") != "refresh":
+            logging.warning(f"Invalid token type in refresh attempt - IP: {request.client.host}")
             raise HTTPException(status_code=401, detail="Invalid token type")
+
+        username = payload.get("sub")
+        if not username:
+            logging.warning(f"Missing username in token payload - IP: {request.client.host}")
+            raise HTTPException(status_code=401, detail="Invalid token")
 
         # Проверяем, не отозван ли токен
         jti = payload.get("jti")
+        if not jti:
+            logging.warning(f"Missing JTI in token payload - User: {username}, IP: {request.client.host}")
+            raise HTTPException(status_code=401, detail="Invalid token")
+
         if db.query(RevokedToken).filter(RevokedToken.jti == jti).first():
+            logging.warning(f"Attempt to use revoked token - User: {username}, IP: {request.client.host}")
             raise HTTPException(status_code=401, detail="Token has been revoked")
 
+        # Проверяем сессию
+        session = db.query(UserSession).filter(
+            UserSession.refresh_token_jti == jti,
+            UserSession.is_active == True
+        ).first()
+
+        if not session:
+            logging.warning(f"No active session found for token - User: {username}, IP: {request.client.host}")
+            raise HTTPException(status_code=401, detail="Invalid session")
+
+        # Обновляем время последней активности сессии
+        session.last_activity = datetime.utcnow()
+        
         # Создаем новый access_token
-        new_access_token, _ = create_access_token(
-            data={"sub": payload["sub"]},
-            expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        new_access_token, new_access_jti = create_access_token(
+            data={"sub": username},
+            request=request
         )
 
-        # Возвращаем корректный ответ
-        return {
-            "access_token": new_access_token,
-            "refresh_token": token_request.refresh_token,  # Можно создать новый refresh_token, если необходимо
-            "token_type": "bearer"
-        }
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        # Создаем новый refresh_token с ротацией
+        new_refresh_token, new_refresh_jti = create_refresh_token(
+            data={"sub": username},
+            request=request
+        )
 
+        # Обновляем JTI в сессии
+        session.access_token_jti = new_access_jti
+        session.refresh_token_jti = new_refresh_jti
+
+        # Отзываем старый refresh token
+        revoked_token = RevokedToken(
+            jti=jti,
+            revoked_at=datetime.utcnow()
+        )
+        db.add(revoked_token)
+
+        try:
+            db.commit()
+        except SQLAlchemyError as e:
+            db.rollback()
+            logging.error(f"Database error during token refresh - User: {username}, Error: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error")
+
+        logging.info(f"Token refresh successful - User: {username}, IP: {request.client.host}, Session: {session.id}")
+
+        response = JSONResponse(content={
+            "access_token": new_access_token,
+            "refresh_token": new_refresh_token,
+            "token_type": "bearer"
+        })
+
+        # Устанавливаем новые токены в cookies
+        cookie_settings = get_cookie_settings(request)
+        token_expiration = get_token_expiration()
+
+        response.set_cookie(
+            key="access_token",
+            value=f"Bearer {new_access_token}",
+            max_age=token_expiration["access_token"],
+            **cookie_settings
+        )
+
+        response.set_cookie(
+            key="refresh_token",
+            value=new_refresh_token,
+            max_age=token_expiration["refresh_token"],
+            **cookie_settings
+        )
+
+        return response
+
+    except JWTError as e:
+        logging.warning(f"JWT decode error during refresh - IP: {request.client.host}, Error: {str(e)}")
+        raise HTTPException(status_code=401, detail="Invalid token")
+    except Exception as e:
+        logging.error(f"Unexpected error during token refresh - IP: {request.client.host}, Error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/users/me/", response_model=schemas.User)
 async def read_users_me(current_user: schemas.User = Depends(get_current_active_user)):
@@ -286,7 +360,8 @@ async def login_user(
         request=request
     )
     refresh_token, refresh_jti = create_refresh_token(
-        data={"sub": user.username}
+        data={"sub": user.username},
+        request=request
     )
 
     # Создаем сессию
@@ -313,7 +388,7 @@ async def login_user(
     # Устанавливаем токены в cookies с правильными сроками действия
     response.set_cookie(
         key="access_token",
-        value=access_token,
+        value=f"Bearer {access_token}",
         max_age=token_expiration["access_token"],
         **cookie_settings
     )
@@ -324,6 +399,9 @@ async def login_user(
         max_age=token_expiration["refresh_token"],
         **cookie_settings
     )
+
+    # Логируем успешный вход
+    logging.info(f"Successful login - User: {user.username}, IP: {request.client.host}, Session: {session.id}")
 
     return response
 

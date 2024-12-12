@@ -77,29 +77,63 @@ def authenticate_user(db: Session, username: str, password: str):
     return user
 
 
-def refresh_access_token(refresh_token: str) -> tuple[str, str]:
+def refresh_access_token(refresh_token: str, db: Session) -> tuple[str, str]:
+    """
+    Обновляет access token используя refresh token.
+    
+    Args:
+        refresh_token: Refresh token для обновления access token
+        db: Сессия базы данных
+        
+    Returns:
+        tuple[str, str]: Новый access token и его JTI
+        
+    Raises:
+        ValueError: Если refresh token невалиден или истек
+    """
     try:
+        # Декодируем refresh token
         payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
         refresh_exp = payload.get("exp")
+        refresh_jti = payload.get("jti")
         current_time = datetime.now(timezone.utc).timestamp()
 
-        # Проверка на None
+        # Проверяем срок действия
         if refresh_exp is None:
             raise ValueError("Refresh token does not contain an expiration time")
-
         if current_time > refresh_exp:
             raise ValueError("Refresh token has expired")
+
+        # Проверяем наличие JTI
+        if not refresh_jti:
+            raise ValueError("Refresh token does not contain JTI")
+
+        # Проверяем активность сессии
+        session = db.query(UserSession).filter(
+            UserSession.refresh_token_jti == refresh_jti,
+            UserSession.is_active == True
+        ).first()
+
+        if not session:
+            raise ValueError("Session not found or inactive")
 
         username = payload.get("sub")
         if not username:
             raise ValueError("Invalid refresh token")
 
-        new_token, jti = create_access_token(data={"sub": username})
-        return new_token, jti
+        # Создаем новый access token
+        new_token, new_jti = create_access_token(data={"sub": username})
+        
+        # Обновляем JTI в сессии
+        session.access_token_jti = new_jti
+        session.last_activity = datetime.now(timezone.utc)
+        db.commit()
+
+        return new_token, new_jti
 
     except JWTError as e:
         logging.error(f"Error refreshing access token: {str(e)}")
-        raise ValueError("Invalid refresh token")
+        raise ValueError(f"Failed to refresh token: {str(e)}")
 
 
 def verify_password(plain_password, hashed_password):
@@ -381,7 +415,7 @@ async def get_current_user(request: Request, db: Session = Depends(get_db)) -> m
 
             try:
                 logging.debug("Access token истек, обновляем")
-                new_access_token, _ = refresh_access_token(refresh_token)
+                new_access_token, _ = refresh_access_token(refresh_token, db)
                 
                 # Устанавливаем новый access token в response
                 request.state.new_access_token = new_access_token
