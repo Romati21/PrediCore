@@ -104,3 +104,48 @@ class SessionService:
             UserSession.user_id == user_id,
             UserSession.is_active == True
         ).count()
+
+    def cleanup_all_old_sessions(self, db: Session) -> tuple[int, int]:
+        """
+        Очищает старые и неактивные сессии.
+
+        Returns:
+            tuple[int, int]: (количество деактивированных сессий, количество удаленных сессий)
+        """
+        try:
+            current_time = datetime.now(timezone.utc)
+
+            # Деактивируем сессии, неактивные более 7 дней
+            inactive_threshold = current_time - timedelta(days=7)
+            deactivated = db.query(UserSession).filter(
+                UserSession.is_active == True,
+                UserSession.last_activity < inactive_threshold
+            ).update({
+                "is_active": False
+            })
+
+            # Удаляем сессии старше 30 дней
+            deletion_threshold = current_time - timedelta(days=30)
+            deleted = db.query(UserSession).filter(
+                UserSession.last_activity < deletion_threshold
+            ).delete()
+
+            db.commit()
+            self.logger.info(f"Session cleanup: {deactivated} sessions deactivated, {deleted} sessions deleted")
+            return deactivated, deleted
+
+        except Exception as e:
+            self.logger.error(f"Error during session cleanup: {str(e)}")
+            db.rollback()
+            return 0, 0
+
+    def update_session_activity(self, db: Session, session: UserSession) -> bool:
+        """Обновляет время последней активности сессии"""
+        try:
+            session.last_activity = datetime.now(timezone.utc)
+            db.commit()
+            return True
+        except Exception as e:
+            self.logger.error(f"Error updating session activity: {str(e)}")
+            db.rollback()
+            return False

@@ -40,7 +40,7 @@ from app.tasks import  clean_temp_folder
 from apscheduler.triggers.cron import CronTrigger
 from fastapi.middleware.cors import CORSMiddleware
 from app.middleware.token_refresh import TokenRefreshMiddleware
-from app.services import cleanup_service
+from app.services.cleanup_service import cleanup_service
 from app.auth.auth import get_current_user_optional
 
 # Настройка логгирования
@@ -185,13 +185,31 @@ async def cleanup_unused_drawings(db: Session):
 scheduler = AsyncIOScheduler()
 
 def setup_scheduler():
-    # Добавляем задачу для очистки временной папки
-    scheduler.add_job(clean_temp_folder, CronTrigger(hour=3))
+    try:
+        if scheduler.running:
+            logging.info("Scheduler is already running, skipping initialization")
+            return
 
-    # Добавляем задачу для очистки неиспользуемых чертежей
-    scheduler.add_job(cleanup_unused_drawings, CronTrigger(hour=3), args=[next(get_db())])
+        # Очистка временных файлов каждый день в 3:00
+        scheduler.add_job(
+            clean_temp_folder,
+            CronTrigger(hour=3, minute=0),
+            id='clean_temp_folder'
+        )
+        
+        # Очистка старых сессий каждый день в 4:00
+        scheduler.add_job(
+            cleanup_service.cleanup_all_old_sessions,
+            CronTrigger(hour=4, minute=0),
+            id='cleanup_old_sessions',
+            args=[SessionLocal()]
+        )
 
-setup_scheduler()
+        scheduler.start()
+        logging.info("Scheduler started successfully")
+            
+    except Exception as e:
+        logging.error(f"Ошибка при запуске планировщика: {str(e)}")
 
 
 def ensure_default_drawing_exists():
@@ -206,11 +224,12 @@ def ensure_default_drawing_exists():
         d.text((400, 300), "Чертёж отсутствует", fill='black', anchor="mm")
         img.save(default_drawing_path)
 
+
 @app.on_event("startup")
 async def startup_event():
     ensure_default_drawing_exists()
     try:
-        scheduler.start()
+        setup_scheduler()
         logger.info("Планировщик успешно запущен")
     except Exception as e:
         logger.error(f"Ошибка при запуске планировщика: {str(e)}")
