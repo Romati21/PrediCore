@@ -9,7 +9,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Stre
 from fastapi.staticfiles import StaticFiles
 from fastapi.websockets import WebSocketDisconnect
 from sqlalchemy.orm import Session, joinedload
-from app import models, repository, schemas
+from app.models import Base, User, ProductionOrder, Drawing, OrderDrawing  # Импортируем конкретные модели
+from app import repository, schemas
 from app.database import SessionLocal, engine
 from app.cleanup_drawings import cleanup_original_drawings
 from app.websocket_manager import manager
@@ -89,7 +90,7 @@ class Order(BaseModel):
     product_name: str
     quantity: int
 
-models.Base.metadata.create_all(bind=engine)
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 static_dir = os.path.join(os.path.dirname(__file__), "static")
@@ -169,7 +170,7 @@ async def cleanup_unused_drawings(db: Session):
         # Определяем срок, после которого чертеж считается неиспользуемым (например, 30 дней)
         unused_threshold = datetime.now() - timedelta(days=360)
         # Получаем все неиспользуемые чертежи
-        unused_drawings = db.query(models.Drawing).filter(models.Drawing.last_used_at < unused_threshold).all()
+        unused_drawings = db.query(Drawing).filter(Drawing.last_used_at < unused_threshold).all()
 
         for drawing in unused_drawings:
             if os.path.exists(drawing.file_path):
@@ -254,7 +255,7 @@ def calculate_file_hash(file_path):
 @app.get("/", response_class=HTMLResponse)
 async def read_root(
     request: Request,
-    current_user: Optional[models.User] = Depends(get_current_user_optional)
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     return templates.TemplateResponse("form.html", {"request": request, "current_user": current_user})
 
@@ -270,7 +271,7 @@ async def submit_data(batch_number: str = Form(...), part_number: str = Form(...
 async def show_data(
     request: Request,
     db: Session = Depends(get_db),
-    current_user: Optional[models.User] = Depends(get_current_user_optional)
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     inventory = repository.get_inventory(db)
     return templates.TemplateResponse("data.html", {"request": request, "data": inventory, "current_user": current_user})
@@ -341,9 +342,9 @@ async def print_order(
     request: Request,
     order_id: int,
     db: Session = Depends(get_db),
-    current_user: Optional[models.User] = Depends(get_current_user_optional)
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
-    order = db.query(models.ProductionOrder).filter(models.ProductionOrder.id == order_id).first()
+    order = db.query(ProductionOrder).filter(ProductionOrder.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
 
@@ -373,9 +374,9 @@ async def print_order(
 async def show_production_orders(
     request: Request,
     db: Session = Depends(get_db),
-    current_user: Optional[models.User] = Depends(get_current_user_optional)
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
-    orders = db.query(models.ProductionOrder).order_by(models.ProductionOrder.publication_date.desc()).all()
+    orders = db.query(ProductionOrder).order_by(ProductionOrder.publication_date.desc()).all()
     logger.info(f"Получено {len(orders)} заказов из базы данных")
     return templates.TemplateResponse(
         "production_orders.html",
@@ -428,7 +429,7 @@ def generate_order_number(part_number, db):
         order_number = f'{prefix}{unique_code}'
 
         # Проверяем, существует ли уже такой order_number
-        existing_order = db.query(models.ProductionOrder).filter_by(order_number=order_number).first()
+        existing_order = db.query(ProductionOrder).filter_by(order_number=order_number).first()
         if not existing_order:
             return order_number
 
@@ -600,7 +601,7 @@ async def update_production_order(
     try:
         logger.info(f"Начало обновления заказа {order_id}")
 
-        order = db.query(models.ProductionOrder).filter(models.ProductionOrder.id == order_id).first()
+        order = db.query(ProductionOrder).filter(ProductionOrder.id == order_id).first()
         if not order:
             raise HTTPException(status_code=404, detail="Заказ не найден")
 
@@ -617,9 +618,9 @@ async def update_production_order(
         if delete_drawing:
             delete_drawing_list = delete_drawing.split(',')
             for drawing_id in delete_drawing_list:
-                order_drawing = db.query(models.OrderDrawing).filter(
-                    models.OrderDrawing.order_id == order.id,
-                    models.OrderDrawing.drawing_id == int(drawing_id)
+                order_drawing = db.query(OrderDrawing).filter(
+                    OrderDrawing.order_id == order.id,
+                    OrderDrawing.drawing_id == int(drawing_id)
                 ).first()
                 if order_drawing:
                     drawing = order_drawing.drawing
@@ -645,9 +646,9 @@ async def update_production_order(
                         processed_file['mime_type']
                     )
 
-                    existing_order_drawing = db.query(models.OrderDrawing).filter(
-                        models.OrderDrawing.order_id == order.id,
-                        models.OrderDrawing.drawing_id == drawing.id
+                    existing_order_drawing = db.query(OrderDrawing).filter(
+                        OrderDrawing.order_id == order.id,
+                        OrderDrawing.drawing_id == drawing.id
                     ).first()
 
                     if not existing_order_drawing:
@@ -656,10 +657,10 @@ async def update_production_order(
                     logger.info(f"Drawing {drawing.file_name} added/updated for order {order_id}")
 
         # Обновляем список активных чертежей
-        active_drawings = db.query(models.OrderDrawing).filter(
-            models.OrderDrawing.order_id == order.id,
-            models.Drawing.archived_at == None
-        ).join(models.Drawing).all()
+        active_drawings = db.query(OrderDrawing).filter(
+            OrderDrawing.order_id == order.id,
+            Drawing.archived_at == None
+        ).join(Drawing).all()
 
         # Обновляем drawing_link
         existing_file_paths = [order_drawing.drawing.file_path for order_drawing in active_drawings]
@@ -690,12 +691,12 @@ async def combine_drawing_with_qr(order_id: int, drawing_id: int, db: Session = 
     logger.info(f"Запрос на объединение чертежа с QR-кодом: order_id={order_id}, drawing_id={drawing_id}")
 
     try:
-        order = db.query(models.ProductionOrder).filter(models.ProductionOrder.id == order_id).first()
+        order = db.query(ProductionOrder).filter(ProductionOrder.id == order_id).first()
         if not order:
             logger.error(f"Заказ не найден: order_id={order_id}")
             raise HTTPException(status_code=404, detail="Заказ не найден")
 
-        drawing = db.query(models.Drawing).filter(models.Drawing.id == drawing_id).first()
+        drawing = db.query(Drawing).filter(Drawing.id == drawing_id).first()
         if not drawing:
             logger.error(f"Чертеж не найден: drawing_id={drawing_id}")
             raise HTTPException(status_code=404, detail="Чертеж не найден")
@@ -705,9 +706,9 @@ async def combine_drawing_with_qr(order_id: int, drawing_id: int, db: Session = 
             raise HTTPException(status_code=404, detail="QR-код не найден")
 
         # Удаляем проверку qr_code_path для OrderDrawing
-        order_drawing = db.query(models.OrderDrawing).filter(
-            models.OrderDrawing.order_id == order_id,
-            models.OrderDrawing.drawing_id == drawing_id
+        order_drawing = db.query(OrderDrawing).filter(
+            OrderDrawing.order_id == order_id,
+            OrderDrawing.drawing_id == drawing_id
         ).first()
         if not order_drawing:
             logger.error(f"Связь заказа и чертежа не найдена: order_id={order_id}, drawing_id={drawing_id}")
@@ -849,11 +850,11 @@ async def update_order(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/production_order_form", response_class=HTMLResponse)
-async def production_order_form(request: Request, current_user: Optional[models.User] = Depends(get_current_user_optional)):
+async def production_order_form(request: Request, current_user: Optional[User] = Depends(get_current_user_optional)):
     return templates.TemplateResponse("production_order_form.html", {"request": request, "order": None, "current_user": current_user})
 
 
-def process_drawing(drawing_path: str, order: models.ProductionOrder) -> str:
+def process_drawing(drawing_path: str, order: ProductionOrder) -> str:
     try:
         logger.info(f"Начало обработки чертежа: {drawing_path}")
 
@@ -951,13 +952,13 @@ async def print_drawing(
     order_id: int,
     drawing_id: int,
     db: Session = Depends(get_db),
-    current_user: Optional[models.User] = Depends(get_current_user_optional)
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
-    order = db.query(models.ProductionOrder).filter(models.ProductionOrder.id == order_id).first()
+    order = db.query(ProductionOrder).filter(ProductionOrder.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
 
-    drawing = db.query(models.Drawing).filter(models.Drawing.id == drawing_id).first()
+    drawing = db.query(Drawing).filter(Drawing.id == drawing_id).first()
     if not drawing:
         raise HTTPException(status_code=404, detail="Чертеж не найден")
 
@@ -1030,7 +1031,7 @@ async def process_uploaded_file(file: UploadFile, db: Session):
         file_hash = hashlib.sha256(content).hexdigest()
 
         # Проверяем, существует ли файл с таким хешем в базе данных
-        existing_drawing = db.query(models.Drawing).filter(models.Drawing.hash == file_hash).first()
+        existing_drawing = db.query(Drawing).filter(Drawing.hash == file_hash).first()
         if existing_drawing:
             logger.info(f"Файл с хешем {file_hash} уже существует. Используем существующий файл.")
             # Обновляем last_used_at
@@ -1061,7 +1062,7 @@ async def process_uploaded_file(file: UploadFile, db: Session):
         mime_type = mimetypes.guess_type(standardized_path)[0] or 'application/octet-stream'
 
         # Создаем новую запись в базе данных
-        new_drawing = models.Drawing(
+        new_drawing = Drawing(
             file_name=file.filename,
             file_path=standardized_path,
             hash=file_hash,
@@ -1107,11 +1108,11 @@ async def view_drawing(
     request: Request,
     order_id: int,
     db: Session = Depends(get_db),
-    current_user: Optional[models.User] = Depends(get_current_user_optional)
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
-    order = db.query(models.ProductionOrder).options(
-        joinedload(models.ProductionOrder.drawings).joinedload(models.OrderDrawing.drawing)
-    ).filter(models.ProductionOrder.id == order_id).first()
+    order = db.query(ProductionOrder).options(
+        joinedload(ProductionOrder.drawings).joinedload(OrderDrawing.drawing)
+    ).filter(ProductionOrder.id == order_id).first()
 
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
@@ -1138,16 +1139,16 @@ async def edit_production_order(
     request: Request,
     order_id: int,
     db: Session = Depends(get_db),
-    current_user: Optional[models.User] = Depends(get_current_user_optional)
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
-    order = db.query(models.ProductionOrder).filter(models.ProductionOrder.id == order_id).first()
+    order = db.query(ProductionOrder).filter(ProductionOrder.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
 
-    order_drawings = db.query(models.OrderDrawing).filter(models.OrderDrawing.order_id == order_id).all()
+    order_drawings = db.query(OrderDrawing).filter(OrderDrawing.order_id == order_id).all()
     drawings_info = []
     for order_drawing in order_drawings:
-        drawing = db.query(models.Drawing).filter(models.Drawing.id == order_drawing.drawing_id).first()
+        drawing = db.query(Drawing).filter(Drawing.id == order_drawing.drawing_id).first()
         if drawing and not drawing.archived_at:
             file_path = drawing.file_path.replace('static/', '')
             drawings_info.append({
@@ -1169,20 +1170,20 @@ async def drawing_history(
     request: Request,
     order_id: int,
     db: Session = Depends(get_db),
-    current_user: Optional[models.User] = Depends(get_current_user_optional)
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
-    order = db.query(models.ProductionOrder).filter(models.ProductionOrder.id == order_id).first()
+    order = db.query(ProductionOrder).filter(ProductionOrder.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
 
-    current_drawings = db.query(models.Drawing).join(models.OrderDrawing).filter(
-        models.OrderDrawing.order_id == order_id,
-        models.Drawing.archived_at == None
+    current_drawings = db.query(Drawing).join(OrderDrawing).filter(
+        OrderDrawing.order_id == order_id,
+        Drawing.archived_at == None
     ).all()
 
-    archived_drawings = db.query(models.Drawing).join(models.OrderDrawing).filter(
-        models.OrderDrawing.order_id == order_id,
-        models.Drawing.archived_at != None
+    archived_drawings = db.query(Drawing).join(OrderDrawing).filter(
+        OrderDrawing.order_id == order_id,
+        Drawing.archived_at != None
     ).all()
 
     def process_drawings(drawings):
@@ -1206,7 +1207,7 @@ async def drawing_history(
 
 @app.get("/api/orders")
 async def get_orders(db: Session = Depends(get_db)):
-    orders = db.query(models.ProductionOrder).all()
+    orders = db.query(ProductionOrder).all()
     return [order.to_dict() for order in orders]
 
 
@@ -1259,6 +1260,32 @@ async def upload_drawing(
 def get_order_drawings(order_id: int, db: Session = Depends(get_db)):
     drawings = repository.get_drawings_by_order(db, order_id)
     return {"drawings": [{"id": d.id, "file_name": d.file_name, "file_path": d.file_path} for d in drawings]}
+
+@app.get("/api/auth-test")
+async def test_auth(
+    request: Request,
+    current_user: Optional[User] = Depends(get_current_user_optional)
+):
+    # Получаем куки
+    access_token = request.cookies.get("access_token")
+    refresh_token = request.cookies.get("refresh_token")
+    
+    # Логируем информацию
+    logging.info("=== Auth Test ===")
+    logging.info(f"Access Token Present: {bool(access_token)}")
+    logging.info(f"Refresh Token Present: {bool(refresh_token)}")
+    logging.info(f"User Authenticated: {bool(current_user)}")
+    if current_user:
+        logging.info(f"User ID: {current_user.id}")
+        logging.info(f"Username: {current_user.username}")
+    
+    return {
+        "authenticated": bool(current_user),
+        "access_token_present": bool(access_token),
+        "refresh_token_present": bool(refresh_token),
+        "user": current_user.username if current_user else None,
+        "timestamp": datetime.now().isoformat()
+    }
 
 if __name__ == "__main__":
     uvicorn.run(

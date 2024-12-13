@@ -5,7 +5,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from fastapi import APIRouter, Depends, HTTPException, Request, Form
 from sqlalchemy.orm import Session
-from app import models
+from app.models import User
 from app.database import get_db
 from passlib.context import CryptContext
 from fastapi.responses import HTMLResponse
@@ -54,7 +54,7 @@ def send_otp_email(email: str, otp: str):
 # Обработчик запроса восстановления пароля
 @router.post("/forgot_password")
 async def forgot_password(email: str = Form(...), db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.email == email).first()
+    user = db.query(User).filter(User.email == email).first()
     if not user:
         raise HTTPException(status_code=400, detail="Пользователь с таким email не найден")
 
@@ -75,7 +75,7 @@ async def reset_password(
     new_password: str = Form(...),
     db: Session = Depends(get_db)
 ):
-    user = db.query(models.User).filter(models.User.otp == otp).first()
+    user = db.query(User).filter(User.otp == otp).first()
     if not user:
         raise HTTPException(status_code=400, detail="Неверный код подтверждения")
 
@@ -91,13 +91,13 @@ async def reset_password(
 @router.get("/forgot_password", response_class=HTMLResponse)
 async def forgot_password_page(
     request: Request,
-    current_user: Optional[models.User] = Depends(get_current_user_optional)
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     return templates.TemplateResponse("forgot_password.html", {"request": request, "current_user": current_user})
 
 @router.get("/recovery", response_class=HTMLResponse)
 async def recovery_page(
     request: Request,
-    current_user: Optional[models.User] = Depends(get_current_user_optional)
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     return templates.TemplateResponse("recovery.html", {"request": request, "current_user": current_user})

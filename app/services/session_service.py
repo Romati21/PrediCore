@@ -70,20 +70,39 @@ class SessionService:
                 self.logger.warning(f"Invalid IP address attempted: {ip_address}")
                 return None
 
+            # Проверяем количество активных сессий
+            active_sessions = self.get_active_sessions_count(db, user.id)
+            if active_sessions >= 5:  # Максимум 5 активных сессий
+                self.logger.warning(f"Too many active sessions for user {user.username} ({active_sessions})")
+                # Деактивируем самую старую сессию
+                oldest_session = db.query(UserSession).filter(
+                    UserSession.user_id == user.id,
+                    UserSession.is_active == True
+                ).order_by(UserSession.created_at.asc()).first()
+                
+                if oldest_session:
+                    oldest_session.is_active = False
+                    oldest_session.deactivated_at = datetime.now(timezone.utc)
+                    oldest_session.deactivation_reason = "Too many active sessions"
+                    self.logger.info(f"Deactivated oldest session {oldest_session.id} for user {user.username}")
+
+            current_time = datetime.now(timezone.utc)
             session = UserSession(
                 user_id=user.id,
                 ip_address=ip_address,
                 user_agent=user_agent,
-                last_activity=datetime.now(timezone.utc),
+                created_at=current_time,
+                last_activity=current_time,
                 access_token_jti=access_token_jti,
-                refresh_token_jti=refresh_token_jti
+                refresh_token_jti=refresh_token_jti,
+                is_active=True
             )
 
             db.add(session)
             db.commit()
 
             self.logger.info(
-                f"Created new session for user {user.username} from IP {ip_address}"
+                f"Created new session {session.id} for user {user.username} from IP {ip_address}"
             )
             return session
 
@@ -115,17 +134,19 @@ class SessionService:
         try:
             current_time = datetime.now(timezone.utc)
 
-            # Деактивируем сессии, неактивные более 7 дней
-            inactive_threshold = current_time - timedelta(days=7)
+            # Деактивируем сессии, неактивные более 3 дней
+            inactive_threshold = current_time - timedelta(days=3)
             deactivated = db.query(UserSession).filter(
                 UserSession.is_active == True,
                 UserSession.last_activity < inactive_threshold
             ).update({
-                "is_active": False
+                "is_active": False,
+                "deactivated_at": current_time,
+                "deactivation_reason": "Inactive for 3 days"
             })
 
-            # Удаляем сессии старше 30 дней
-            deletion_threshold = current_time - timedelta(days=30)
+            # Удаляем сессии старше 7 дней
+            deletion_threshold = current_time - timedelta(days=7)
             deleted = db.query(UserSession).filter(
                 UserSession.last_activity < deletion_threshold
             ).delete()
@@ -142,9 +163,33 @@ class SessionService:
     def update_session_activity(self, db: Session, session: UserSession) -> bool:
         """Обновляет время последней активности сессии"""
         try:
-            session.last_activity = datetime.now(timezone.utc)
+            # Проверяем, не слишком ли старая сессия
+            current_time = datetime.now(timezone.utc)
+            session_age = current_time - session.created_at
+            
+            if session_age > timedelta(days=7):
+                self.logger.warning(f"Session {session.id} is too old (age: {session_age.days} days), deactivating")
+                session.is_active = False
+                session.deactivated_at = current_time
+                session.deactivation_reason = "Session expired"
+                db.commit()
+                return False
+                
+            # Проверяем, не была ли сессия неактивной слишком долго
+            if session.last_activity:
+                inactivity_period = current_time - session.last_activity
+                if inactivity_period > timedelta(days=3):
+                    self.logger.warning(f"Session {session.id} was inactive for too long ({inactivity_period.days} days), deactivating")
+                    session.is_active = False
+                    session.deactivated_at = current_time
+                    session.deactivation_reason = "Long inactivity"
+                    db.commit()
+                    return False
+
+            session.last_activity = current_time
             db.commit()
             return True
+            
         except Exception as e:
             self.logger.error(f"Error updating session activity: {str(e)}")
             db.rollback()

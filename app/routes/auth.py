@@ -1,11 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, BackgroundTasks
 from jose import JWTError, jwt
-from app.models import User, UserSession, RevokedToken
+from app import models, schemas
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
-from app import models, schemas
 from app.database import get_db
 # from app.routes.auth import access_token_data
 from app.auth.auth import (
@@ -132,14 +131,14 @@ async def refresh_token_endpoint(
             logging.warning(f"Missing JTI in token payload - User: {username}, IP: {request.client.host}")
             raise HTTPException(status_code=401, detail="Invalid token")
 
-        if db.query(RevokedToken).filter(RevokedToken.jti == jti).first():
+        if db.query(models.RevokedToken).filter(models.RevokedToken.jti == jti).first():
             logging.warning(f"Attempt to use revoked token - User: {username}, IP: {request.client.host}")
             raise HTTPException(status_code=401, detail="Token has been revoked")
 
         # Проверяем сессию
-        session = db.query(UserSession).filter(
-            UserSession.refresh_token_jti == jti,
-            UserSession.is_active == True
+        session = db.query(models.UserSession).filter(
+            models.UserSession.refresh_token_jti == jti,
+            models.UserSession.is_active == True
         ).first()
 
         if not session:
@@ -166,7 +165,7 @@ async def refresh_token_endpoint(
         session.refresh_token_jti = new_refresh_jti
 
         # Отзываем старый refresh token
-        revoked_token = RevokedToken(
+        revoked_token = models.RevokedToken(
             jti=jti,
             revoked_at=datetime.utcnow()
         )
@@ -174,7 +173,7 @@ async def refresh_token_endpoint(
 
         try:
             db.commit()
-        except SQLAlchemyError as e:
+        except Exception as e:
             db.rollback()
             logging.error(f"Database error during token refresh - User: {username}, Error: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error")
@@ -461,9 +460,9 @@ async def revoke_all_user_tokens(
     current_user: models.User = Depends(is_admin)
 ):
     # Получаем все активные сессии пользователя
-    user_sessions = db.query(UserSession).filter(
-        UserSession.user_id == user_id,
-        UserSession.is_active == True
+    user_sessions = db.query(models.UserSession).filter(
+        models.UserSession.user_id == user_id,
+        models.UserSession.is_active == True
     ).all()
 
     for session in user_sessions:
@@ -489,8 +488,8 @@ async def revoke_all_user_tokens(
 async def cleanup_expired_tokens(db: Session):
     try:
         current_time = datetime.now(timezone.utc)
-        db.query(RevokedToken).filter(
-            RevokedToken.expires_at < current_time
+        db.query(models.RevokedToken).filter(
+            models.RevokedToken.expires_at < current_time
         ).delete()
         db.commit()
     except Exception as e:

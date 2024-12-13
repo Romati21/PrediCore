@@ -77,16 +77,18 @@ def authenticate_user(db: Session, username: str, password: str):
     return user
 
 
-def refresh_access_token(refresh_token: str, db: Session) -> tuple[str, str]:
+def refresh_access_token(refresh_token: str, db: Session, create_new_refresh: bool = False) -> tuple[str, Optional[str]]:
     """
     Обновляет access token используя refresh token.
     
     Args:
         refresh_token: Refresh token для обновления access token
         db: Сессия базы данных
+        create_new_refresh: Создавать ли новый refresh token
         
     Returns:
-        tuple[str, str]: Новый access token и его JTI
+        tuple[str, Optional[str]]: Кортеж из (access_token, refresh_token).
+            refresh_token будет None если create_new_refresh=False
         
     Raises:
         ValueError: Если refresh token невалиден или истек
@@ -94,19 +96,33 @@ def refresh_access_token(refresh_token: str, db: Session) -> tuple[str, str]:
     try:
         # Декодируем refresh token
         payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+        
+        # Проверяем тип токена
+        if payload.get("type") != "refresh":
+            logging.warning("Attempt to use non-refresh token for refresh")
+            raise ValueError("Invalid token type")
+
         refresh_exp = payload.get("exp")
         refresh_jti = payload.get("jti")
         current_time = datetime.now(timezone.utc).timestamp()
 
         # Проверяем срок действия
         if refresh_exp is None:
+            logging.warning("Refresh token without expiration time")
             raise ValueError("Refresh token does not contain an expiration time")
         if current_time > refresh_exp:
+            logging.warning("Attempt to use expired refresh token")
             raise ValueError("Refresh token has expired")
 
         # Проверяем наличие JTI
         if not refresh_jti:
+            logging.warning("Refresh token without JTI")
             raise ValueError("Refresh token does not contain JTI")
+
+        # Проверяем, не отозван ли токен
+        if db.query(RevokedToken).filter(RevokedToken.jti == refresh_jti).first():
+            logging.warning(f"Attempt to use revoked token with JTI: {refresh_jti}")
+            raise ValueError("Token has been revoked")
 
         # Проверяем активность сессии
         session = db.query(UserSession).filter(
@@ -115,24 +131,71 @@ def refresh_access_token(refresh_token: str, db: Session) -> tuple[str, str]:
         ).first()
 
         if not session:
+            logging.warning(f"No active session found for refresh token JTI: {refresh_jti}")
             raise ValueError("Session not found or inactive")
 
         username = payload.get("sub")
         if not username:
+            logging.warning("Refresh token without username")
             raise ValueError("Invalid refresh token")
 
+        # Проверяем существование пользователя
+        user = db.query(User).filter(User.username == username).first()
+        if not user:
+            logging.warning(f"User not found: {username}")
+            raise ValueError("User not found")
+
+        # Создаем данные для токена с информацией о клиенте
+        token_data = {
+            "sub": username,
+            "ip": session.ip_address,
+            "user_agent": session.user_agent
+        }
+
         # Создаем новый access token
-        new_token, new_jti = create_access_token(data={"sub": username})
+        new_access_token, new_access_jti = create_access_token(
+            data=token_data
+        )
         
         # Обновляем JTI в сессии
-        session.access_token_jti = new_jti
+        session.access_token_jti = new_access_jti
         session.last_activity = datetime.now(timezone.utc)
-        db.commit()
 
-        return new_token, new_jti
+        new_refresh_token = None
+        if create_new_refresh:
+            # Создаем новый refresh token
+            new_refresh_token, new_refresh_jti = create_refresh_token(
+                data=token_data
+            )
+            
+            # Отзываем старый refresh token
+            revoked_token = RevokedToken(
+                jti=refresh_jti,
+                revoked_at=datetime.now(timezone.utc),
+                reason="Token rotation"
+            )
+            db.add(revoked_token)
+            
+            # Обновляем JTI в сессии
+            session.refresh_token_jti = new_refresh_jti
+
+        try:
+            db.commit()
+            logging.info(f"Successfully refreshed tokens for user: {username}")
+        except Exception as e:
+            db.rollback()
+            logging.error(f"Database error during token refresh: {str(e)}")
+            raise ValueError("Failed to update session")
+
+        if create_new_refresh:
+            return new_access_token, new_refresh_token
+        return new_access_token, None
 
     except JWTError as e:
-        logging.error(f"Error refreshing access token: {str(e)}")
+        logging.error(f"JWT error during token refresh: {str(e)}")
+        raise ValueError(f"Failed to refresh token: {str(e)}")
+    except Exception as e:
+        logging.error(f"Unexpected error during token refresh: {str(e)}")
         raise ValueError(f"Failed to refresh token: {str(e)}")
 
 
@@ -165,38 +228,74 @@ def create_access_token(
         Tuple[str, str]: Кортеж из (token, jti)
     """
     to_encode = data.copy()
-
-    # Используем timezone-aware datetime объекты
-    current_time = datetime.now(timezone.utc)
-
+    
     if expires_delta:
-        expire = current_time + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = current_time + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-
-    # Генерируем уникальный идентификатор токена
-    jti = str(uuid.uuid4())
-
-    # Добавляем служебные поля в токен
-    to_encode.update({
-        "exp": int(expire.timestamp()),  # Конвертируем в UNIX timestamp
-        "iat": int(current_time.timestamp()),  # Добавляем время создания
-        "jti": jti,
-        "type": "access"
-    })
-
-    # Добавляем информацию о клиенте, если доступна
+        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    
+    # Добавляем информацию о клиенте, если есть request
     if request:
         to_encode.update({
-            "ip": request.client.host,
+            "ip": request.client.host if request.client else None,
+            "user_agent": request.headers.get("user-agent")
+        })
+    
+    # Добавляем стандартные поля
+    jti = str(uuid.uuid4())
+    to_encode.update({
+        "exp": expire,
+        "jti": jti,
+        "type": "access",
+        "iat": datetime.now(timezone.utc)
+    })
+    
+    # Создаем токен
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt, jti
+
+def create_refresh_token(
+    data: dict,
+    request: Optional[Request] = None,
+    expires_delta: Optional[timedelta] = None
+) -> Tuple[str, str]:
+    """
+    Создает refresh token с указанными данными и сроком действия.
+
+    Args:
+        data: Словарь с данными для кодирования в токен
+        request: Объект запроса для добавления информации об IP и User-Agent
+        expires_delta: Срок действия токена
+
+    Returns:
+        Tuple[str, str]: Кортеж из токена и его JTI
+    """
+    to_encode = data.copy()
+    
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+
+    # Добавляем информацию о клиенте, если есть request
+    if request:
+        to_encode.update({
+            "ip": request.client.host if request.client else None,
             "user_agent": request.headers.get("user-agent")
         })
 
-    try:
-        token = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-        return token, jti
-    except Exception as e:
-        raise ValueError(f"Error creating access token: {str(e)}")
+    # Добавляем стандартные поля
+    jti = str(uuid.uuid4())
+    to_encode.update({
+        "exp": expire,
+        "jti": jti,
+        "type": "refresh",
+        "iat": datetime.now(timezone.utc)
+    })
+    
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt, jti
+
 
 async def validate_token(token: str, db: Session, request: Request = None) -> dict:
     try:
@@ -308,54 +407,6 @@ async def revoke_token(
             detail="Internal server error while revoking token"
         )
 
-def create_refresh_token(
-    data: dict,
-    request: Optional[Request] = None,
-    expires_delta: Optional[timedelta] = None
-) -> Tuple[str, str]:  # (token, jti)
-    """
-    Создает refresh token с указанными данными и сроком действия.
-
-    Args:
-        data: Словарь с данными для кодирования в токен
-        request: Объект запроса для добавления информации об IP и User-Agent
-        expires_delta: Срок действия токена
-
-    Returns:
-        Tuple[str, str]: Кортеж из токена и его JTI
-    """
-    to_encode = data.copy()
-    jti = str(uuid.uuid4())
-
-    current_time = datetime.now(timezone.utc)
-    if expires_delta:
-        expire = current_time + expires_delta
-    else:
-        expire = current_time + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-
-    to_encode.update({
-        "exp": int(expire.timestamp()),  # Конвертируем в UNIX timestamp
-        "iat": int(current_time.timestamp()),  # Добавляем время создания токена
-        "jti": jti,
-        "type": "refresh"
-    })
-
-    if request:
-        # Добавляем информацию о клиенте
-        to_encode["ip"] = request.client.host
-        to_encode["user_agent"] = request.headers.get("user-agent")
-
-    try:
-        token = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-        return token, jti
-    except Exception as e:
-        logging.error(f"Error creating refresh token: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail="Error creating refresh token"
-        )
-
-
 # Определяем типы в начале файла
 class TokenPayload(TypedDict):
     sub: str
@@ -460,8 +511,9 @@ def get_cookie_settings(request: Request) -> dict:
     """Возвращает стандартные настройки для cookie"""
     return {
         "httponly": True,
-        "samesite": 'lax',
+        "samesite": 'strict',
         "secure": request.url.scheme == "https",
+        "path": "/"  # Явно указываем path
     }
 
 def get_token_expiration() -> dict:
