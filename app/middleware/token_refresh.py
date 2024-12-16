@@ -99,6 +99,19 @@ class TokenRefreshMiddleware(BaseHTTPMiddleware):
                         algorithms=[ALGORITHM]
                     )
                     
+                    if access_payload.get("type") == "refresh":
+                        logger.warning(f"[{request_id}] Access token is actually a refresh token, attempting to restore")
+                        with SessionLocal() as db:
+                            try:
+                                new_access_token, _ = refresh_access_token(refresh_token, db)
+                                request.state.new_access_token = new_access_token
+                                logger.info(f"[{request_id}] Successfully restored correct access token")
+                                return await call_next(request)
+                            except Exception as e:
+                                logger.error(f"[{request_id}] Error restoring access token: {str(e)}")
+                                request.state.clear_tokens = True
+                                return await call_next(request)
+                    
                     # Проверяем время жизни access token
                     exp = access_payload.get("exp")
                     

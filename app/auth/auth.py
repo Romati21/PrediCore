@@ -509,12 +509,29 @@ def is_admin(
 
 def get_cookie_settings(request: Request) -> dict:
     """Возвращает стандартные настройки для cookie"""
-    return {
+    settings = {
         "httponly": True,
         "samesite": 'strict',
         "secure": request.url.scheme == "https",
-        "path": "/"  # Явно указываем path
+        "path": "/",
     }
+    
+    # Получаем домен из запроса
+    domain = request.headers.get("host", "").split(":")[0]
+    
+    # Если домен не localhost и не IP адрес, добавляем его в настройки
+    if domain and not domain.startswith("localhost") and not _is_ip_address(domain):
+        settings["domain"] = domain
+        
+    return settings
+
+def _is_ip_address(host: str) -> bool:
+    """Проверяет, является ли строка IP адресом"""
+    try:
+        ip_address(host)
+        return True
+    except ValueError:
+        return False
 
 def get_token_expiration() -> dict:
     """Возвращает время истечения для токенов в секундах (max_age)"""
