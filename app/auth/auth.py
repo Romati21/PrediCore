@@ -517,8 +517,8 @@ def get_cookie_settings(request: Request) -> dict:
     }
 
 def get_token_expiration() -> dict:
-    """Возвращает время истечения для токенов"""
+    """Возвращает время истечения для токенов в секундах (max_age)"""
     return {
         "access_token": ACCESS_TOKEN_EXPIRE_MINUTES * 60,  # в секундах
-        "refresh_token": REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,  # в секундах
+        "refresh_token": REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60  # в секундах
     }

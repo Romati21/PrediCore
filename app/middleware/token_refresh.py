@@ -172,6 +172,52 @@ class TokenRefreshMiddleware(BaseHTTPMiddleware):
                 request.state.clear_tokens = True
                 return await call_next(request)
 
+        elif refresh_token:  # Есть только refresh token
+            logger.info(f"[{request_id}] Only refresh token present, attempting to restore access token")
+            try:
+                # Очищаем refresh token
+                refresh_token = refresh_token.replace('"', '')
+
+                # Проверяем refresh token
+                refresh_payload = jwt.decode(
+                    refresh_token,
+                    SECRET_KEY,
+                    algorithms=[ALGORITHM]
+                )
+                
+                if refresh_payload.get("type") != "refresh":
+                    logger.warning(f"[{request_id}] Invalid refresh token type")
+                    request.state.clear_tokens = True
+                    return await call_next(request)
+
+                # Проверяем срок действия
+                now = datetime.now(timezone.utc).timestamp()
+                refresh_exp = refresh_payload.get("exp")
+                if refresh_exp and refresh_exp <= now:
+                    logger.warning(f"[{request_id}] Refresh token has expired")
+                    request.state.clear_tokens = True
+                    return await call_next(request)
+
+                # Пробуем восстановить access token
+                with SessionLocal() as db:
+                    try:
+                        new_access_token, _ = refresh_access_token(refresh_token, db)
+                        request.state.new_access_token = new_access_token
+                        logger.info(f"[{request_id}] Successfully restored access token")
+                    except Exception as e:
+                        logger.error(f"[{request_id}] Error restoring access token: {str(e)}")
+                        request.state.clear_tokens = True
+                        return await call_next(request)
+
+            except JWTError as e:
+                logger.error(f"[{request_id}] Invalid refresh token while restoring access: {str(e)}")
+                request.state.clear_tokens = True
+                return await call_next(request)
+            except Exception as e:
+                logger.error(f"[{request_id}] Error while restoring access token: {str(e)}")
+                request.state.clear_tokens = True
+                return await call_next(request)
+
         # Получаем response от следующего middleware или конечной точки
         response = await call_next(request)
 
@@ -196,7 +242,7 @@ class TokenRefreshMiddleware(BaseHTTPMiddleware):
                 response.set_cookie(
                     key="access_token",
                     value=f"Bearer {new_access_token}",
-                    expires=token_expiration['access_token'],
+                    max_age=token_expiration['access_token'],
                     **cookie_settings
                 )
                 logger.info(f"[{request_id}] Set new access token")
@@ -205,7 +251,7 @@ class TokenRefreshMiddleware(BaseHTTPMiddleware):
                     response.set_cookie(
                         key="refresh_token",
                         value=new_refresh_token,
-                        expires=token_expiration['refresh_token'],
+                        max_age=token_expiration['refresh_token'],
                         **cookie_settings
                     )
                     logger.info(f"[{request_id}] Set new refresh token")
