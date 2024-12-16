@@ -229,10 +229,11 @@ def create_access_token(
     """
     to_encode = data.copy()
     
+    now = datetime.now(timezone.utc)
     if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
+        expire = now + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = now + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     
     # Добавляем информацию о клиенте, если есть request
     if request:
@@ -244,10 +245,10 @@ def create_access_token(
     # Добавляем стандартные поля
     jti = str(uuid.uuid4())
     to_encode.update({
-        "exp": expire,
+        "exp": int(expire.timestamp()),  # Используем timestamp для единообразия
         "jti": jti,
         "type": "access",
-        "iat": datetime.now(timezone.utc)
+        "iat": int(now.timestamp())  # Также используем timestamp
     })
     
     # Создаем токен
@@ -272,25 +273,26 @@ def create_refresh_token(
     """
     to_encode = data.copy()
     
+    now = datetime.now(timezone.utc)
     if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
+        expire = now + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-
-    # Добавляем информацию о клиенте, если есть request
+        expire = now + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    
+    # Добавляем информацию о клиенте
     if request:
         to_encode.update({
             "ip": request.client.host if request.client else None,
             "user_agent": request.headers.get("user-agent")
         })
-
+    
     # Добавляем стандартные поля
     jti = str(uuid.uuid4())
     to_encode.update({
-        "exp": expire,
+        "exp": int(expire.timestamp()),  # Используем timestamp для единообразия
         "jti": jti,
         "type": "refresh",
-        "iat": datetime.now(timezone.utc)
+        "iat": int(now.timestamp())  # Также используем timestamp
     })
     
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
