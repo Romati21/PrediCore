@@ -60,39 +60,46 @@ async def register_user(
     password: str = Form(...),
     db: Session = Depends(get_db)
 ):
-    # Проверяем, существует ли пользователь с таким email
-    db_user_by_email = db.query(models.User).filter(models.User.email == email).first()
-    if db_user_by_email:
-        raise HTTPException(status_code=400, detail="Пользователь с таким адресом электронной почты уже существует")
-
-    db_user_by_username = db.query(models.User).filter(models.User.username == username).first()
-    if db_user_by_username:
-        raise HTTPException(status_code=400, detail="Пользователь с таким именем пользователя уже существует")
-
     try:
-        user_data = schemas.UserCreate(
-            full_name=full_name,
-            birth_date=birth_date,
-            username=username,
-            email=email,
-            password=password
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        # Проверяем, существует ли пользователь с таким email
+        db_user_by_email = db.query(models.User).filter(models.User.email == email).first()
+        if db_user_by_email:
+            logging.error(f"User with email {email} already exists")
+            raise HTTPException(status_code=400, detail="Пользователь с таким адресом электронной почты уже существует")
 
-    hashed_password = get_password_hash(user_data.password)
-    db_user = models.User(
-        username=user_data.username,
-        email=user_data.email,
-        full_name=user_data.full_name,
-        password_hash=hashed_password,
-        role=models.UserRole.WORKER,  # Устанавливаем роль "Рабочий" по умолчанию
-        birth_date=user_data.birth_date
-    )
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
-    return db_user
+        db_user_by_username = db.query(models.User).filter(models.User.username == username).first()
+        if db_user_by_username:
+            logging.error(f"User with username {username} already exists")
+            raise HTTPException(status_code=400, detail="Пользователь с таким именем пользователя уже существует")
+
+        try:
+            user_data = schemas.UserCreate(
+                full_name=full_name,
+                birth_date=birth_date,
+                username=username,
+                email=email,
+                password=password
+            )
+        except ValueError as e:
+            logging.error(f"Validation error: {str(e)}")
+            raise HTTPException(status_code=422, detail=str(e))
+
+        hashed_password = get_password_hash(user_data.password)
+        db_user = models.User(
+            username=user_data.username,
+            email=user_data.email,
+            full_name=user_data.full_name,
+            password_hash=hashed_password,
+            role=models.UserRole.WORKER,  # Устанавливаем роль "Рабочий" по умолчанию
+            birth_date=user_data.birth_date
+        )
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+        return db_user
+    except Exception as e:
+        logging.error(f"Unexpected error during registration: {str(e)}")
+        raise
 
 @router.post("/token", response_model=schemas.Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
@@ -301,6 +308,10 @@ def get_moscow_time():
     moscow_tz = pytz.timezone('Europe/Moscow')
     return datetime.now(moscow_tz)
 
+def get_client_ip(request: Request) -> str:
+    """Get client IP address from request, checking X-Real-IP header first"""
+    return request.headers.get("X-Real-IP") or request.client.host
+
 @router.post("/login", response_class=JSONResponse)
 async def login_user(
     request: Request,
@@ -308,9 +319,11 @@ async def login_user(
     password: str = Form(...),
     db: Session = Depends(get_db)
 ):
+    logging.info(f"Login attempt with username: {username}")
+    
     user = authenticate_user(db, username, password)
     if not user:
-        logging.warning(f"Failed login attempt - Username: {username}, IP: {request.client.host}")
+        logging.warning(f"Failed login attempt - Username: {username}, IP: {get_client_ip(request)}")
         return JSONResponse(
             content={"error": "Неверное имя пользователя или пароль"},
             status_code=400
@@ -367,7 +380,7 @@ async def login_user(
     session = session_service.create_session(
         db=db,
         user=user,
-        ip_address=request.client.host,
+        ip_address=get_client_ip(request),
         user_agent=request.headers.get("user-agent", ""),
         access_token_jti=access_jti,
         refresh_token_jti=refresh_jti
@@ -391,16 +404,16 @@ async def login_user(
         max_age=token_expiration["access_token"],
         **cookie_settings
     )
-
     response.set_cookie(
         key="refresh_token",
-        value=refresh_token,
+        value=f"Bearer {refresh_token}",
         max_age=token_expiration["refresh_token"],
         **cookie_settings
     )
 
-    # Логируем успешный вход
-    logging.info(f"Successful login - User: {user.username}, IP: {request.client.host}, Session: {session.id}")
+    # Обновляем время последнего входа
+    user.last_login_at = datetime.now(timezone.utc)
+    db.commit()
 
     return response
 

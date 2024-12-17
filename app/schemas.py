@@ -52,13 +52,14 @@ class UserUpdate(BaseModel):
 class UserRoleUpdate(BaseModel):
     role: UserRole
 
-class User(BaseModel):
-    id: int
-    full_name: str
-    birth_date: date
+class UserBase(BaseModel):
     username: str
+    full_name: str
     email: EmailStr
     role: UserRole
+
+class User(UserBase):
+    id: int
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -73,22 +74,6 @@ class User(BaseModel):
 class Shift(str, Enum):
     DAY = "День"
     NIGHT = "Ночь"
-
-class UserBase(BaseModel):
-    username: str
-    full_name: str
-    role: str
-
-# class UserCreate(UserBase):
-#     pass
-
-class User(UserBase):
-    id: int
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 class MachineBase(BaseModel):
     name: str
