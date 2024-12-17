@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field, validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict
 from datetime import date, datetime, time
 from enum import Enum
 from typing import Optional
@@ -26,13 +26,13 @@ class UserCreate(BaseModel):
     password: str
     # Уберем поле role отсюда, так как оно будет назначаться автоматически
 
-    @validator('birth_date', pre=True)
+    @field_validator('birth_date', mode='before')
     def parse_birth_date(cls, v):
         if isinstance(v, str):
             return date.fromisoformat(v)
         return v
 
-    @validator('password')
+    @field_validator('password')
     def password_strength(cls, v):
         if len(v) < 8:
             raise ValueError('Пароль должен содержать не менее 8 символов')
@@ -63,13 +63,14 @@ class User(UserBase):
     is_active: bool
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
-        json_encoders = {
+    
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={
             datetime: lambda dt: dt.isoformat(),
             date: lambda d: d.isoformat()
         }
+    )
 
 class Shift(str, Enum):
     DAY = "День"
@@ -85,9 +86,8 @@ class Machine(MachineBase):
     id: int
     created_at: date
     updated_at: date
-
-    class Config:
-        from_attributes = True
+    
+    model_config = ConfigDict(from_attributes=True)
 
 class PartBase(BaseModel):
     number: str
@@ -100,9 +100,8 @@ class Part(PartBase):
     id: int
     created_at: date
     updated_at: date
-
-    class Config:
-        from_attributes = True
+    
+    model_config = ConfigDict(from_attributes=True)
 
 class OperationBase(BaseModel):
     name: str
@@ -114,9 +113,8 @@ class Operation(OperationBase):
     id: int
     created_at: date
     updated_at: date
-
-    class Config:
-        from_attributes = True
+    
+    model_config = ConfigDict(from_attributes=True)
 
 class WorkLogBase(BaseModel):
     user_id: int
@@ -139,16 +137,14 @@ class WorkLog(WorkLogBase):
     timestamp: date
     created_at: date
     updated_at: date
+    
+    model_config = ConfigDict(from_attributes=True)
 
-    class Config:
-        from_attributes = True
-
-class ArchivedWorkLog(WorkLog):
+class ArchivedWorkLog(WorkLogBase):
     original_id: int
     archived_at: datetime
-
-    class Config:
-        from_attributes = True
+    
+    model_config = ConfigDict(from_attributes=True)
 
 class SetupInfoBase(BaseModel):
     work_log_id: int
@@ -163,9 +159,8 @@ class SetupInfo(SetupInfoBase):
     id: int
     created_at: date
     updated_at: date
-
-    class Config:
-        from_attributes = True
+    
+    model_config = ConfigDict(from_attributes=True)
 
 class OperationDetailsBase(BaseModel):
     work_log_id: int
@@ -181,9 +176,8 @@ class OperationDetails(OperationDetailsBase):
     id: int
     created_at: date
     updated_at: date
-
-    class Config:
-        from_attributes = True
+    
+    model_config = ConfigDict(from_attributes=True)
 
 class WorkLogNotesBase(BaseModel):
     work_log_id: int
@@ -196,9 +190,8 @@ class WorkLogNotes(WorkLogNotesBase):
     id: int
     created_at: date
     updated_at: date
-
-    class Config:
-        from_attributes = True
+    
+    model_config = ConfigDict(from_attributes=True)
 
 class ProductionOrderBase(BaseModel):
     order_number: str
@@ -213,7 +206,7 @@ class ProductionOrderBase(BaseModel):
 class ProductionOrderCreate(ProductionOrderBase):
     publication_date: date
 
-    @validator('desired_production_date_end')
+    @field_validator('desired_production_date_end')
     def end_date_after_start_date(cls, v, values, **kwargs):
         if 'desired_production_date_start' in values and v < values['desired_production_date_start']:
             raise ValueError('end date must not be earlier than start date')
@@ -228,7 +221,7 @@ class ProductionOrderUpdate(BaseModel):
     metal_delivery_date: Optional[str] = None
     notes: Optional[str] = None
 
-    @validator('desired_production_date_end')
+    @field_validator('desired_production_date_end')
     def end_date_after_start_date(cls, v, values, **kwargs):
         if 'desired_production_date_start' in values and v and v < values['desired_production_date_start']:
             raise ValueError('end date must not be earlier than start date')
@@ -242,16 +235,14 @@ class ProductionOrder(ProductionOrderBase):
     qr_code_path: Optional[str] = None
     created_at: date
     updated_at: date
+    
+    model_config = ConfigDict(from_attributes=True)
 
-    class Config:
-        from_attributes = True
-
-class ArchivedProductionOrder(ProductionOrder):
+class ArchivedProductionOrder(ProductionOrderBase):
     original_id: int
     archived_at: datetime
-
-    class Config:
-        from_attributes = True
+    
+    model_config = ConfigDict(from_attributes=True)
 
 class DrawingBase(BaseModel):
     hash: str
@@ -269,9 +260,8 @@ class Drawing(DrawingBase):
     last_used_at: date
     version: int
     archived_at: Optional[date] = None
-
-    class Config:
-        from_attributes = True
+    
+    model_config = ConfigDict(from_attributes=True)
 
 class OrderDrawingBase(BaseModel):
     order_id: int
@@ -283,9 +273,8 @@ class OrderDrawingCreate(OrderDrawingBase):
 class OrderDrawing(OrderDrawingBase):
     id: int
     created_at: date
-
-    class Config:
-        from_attributes = True
+    
+    model_config = ConfigDict(from_attributes=True)
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
