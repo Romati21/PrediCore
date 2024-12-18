@@ -10,6 +10,11 @@ import asyncio
 import nest_asyncio
 from datetime import datetime
 import pytz
+import os
+from dotenv import load_dotenv
+
+# Load environment variables at the start of tests
+load_dotenv()
 
 # Инициализируем event loop для тестов
 loop = asyncio.new_event_loop()
@@ -24,14 +29,17 @@ if scheduler._eventloop:
 scheduler._eventloop = loop
 scheduler.shutdown()
 
-# Используем существующую тестовую базу данных PostgreSQL
-SQLALCHEMY_DATABASE_URL = "postgresql://qr_code_inventory_user:nbvjirF9291@192.168.122.192/qr_code_inventory_db_unit"
+# Используем тестовую базу данных из переменных окружения
+SQLALCHEMY_DATABASE_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    "postgresql://test_user:test_password@localhost/test_db"
+)
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
     pool_size=5,
     max_overflow=10,
-    echo=True  # Enable SQL logging for debugging
+    echo=bool(os.getenv("SQL_ECHO", "False").lower() == "true")  # Enable SQL logging based on env var
 )
 
 TestingSessionLocal = sessionmaker(

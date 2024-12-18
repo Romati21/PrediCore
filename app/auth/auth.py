@@ -17,14 +17,20 @@ from typing import Dict, Any, Optional, cast, TypedDict, Tuple
 from fastapi.responses import Response
 from starlette.background import BackgroundTask
 import logging
-
+import os
 
 # Настройки JWT
-SECRET_KEY = "0915c30082502482c60dee76b9eda80c434d8b8e637c020865db0bfc836012f31874884c0c0512ae3954bf0edfb8d87bb3e32cc978b8f042f5df22851aa3318a"
-# SECRET_KEY = secrets.token_hex(32)  # Генерирует 64-символьный
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-REFRESH_TOKEN_EXPIRE_DAYS = 7
+SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+if not SECRET_KEY:
+    if os.getenv("ENVIRONMENT") == "development":
+        SECRET_KEY = "development_secret_key"  # Only for development
+        logging.warning("Using development JWT secret key. DO NOT use in production!")
+    else:
+        raise ValueError("JWT_SECRET_KEY environment variable is not set")
+
+ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("JWT_REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")

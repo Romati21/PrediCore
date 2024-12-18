@@ -1,4 +1,10 @@
 from fastapi import FastAPI, WebSocket, Depends, HTTPException, Request, Form, UploadFile, File, BackgroundTasks
+import os
+from dotenv import load_dotenv
+
+# Load environment variables at startup
+load_dotenv()
+
 from app.utils import file_utils
 import asyncio
 import io
@@ -45,7 +51,7 @@ from app.services.cleanup_service import cleanup_service
 from app.auth.auth import get_current_user_optional
 
 # Настройка логгирования
-# Настройка логирования
+# Настройка логгирования
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
