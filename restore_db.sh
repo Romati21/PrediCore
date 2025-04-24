@@ -24,7 +24,7 @@ fi
 echo "Restoring from backup: $BACKUP_FILE"
 
 # Восстанавливаем базу данных
-pg_restore -U qr_code_inventory_user -h 192.168.122.192 -d qr_code_inventory_db -c "$BACKUP_FILE"
+pg_restore -U qr_code_inventory_user -h 192.168.122.91 -d qr_code_inventory_db -c "$BACKUP_FILE"
 
 # Находим ревизию Alembic, ближайшую к дате коммита
 ALEMBIC_REVISION=$(alembic history | awk -v date="$COMMIT_DATE" '$0 ~ date {print $1; exit}')
